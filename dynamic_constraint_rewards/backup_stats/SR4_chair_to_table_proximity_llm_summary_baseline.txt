@@ -1,0 +1,27 @@
+
+=== REWARD ANALYSIS: SR4_chair_to_table_proximity ===
+
+PERFORMANCE METRICS:
+  • Success Rate: 15.7% (157/1000 scenes)
+  • Mean Reward: -6.7790
+  • Median Reward: -5.0000
+  • Range: [-21.0000, 0.0000]
+  • Std Dev: 6.4198
+  • Percentiles:
+      - P1: -21.0000
+      - P5: -19.0000
+      - P25: -12.0000
+      - P75: -1.0000
+      - P95: 0.0000
+      - P99: 0.0000
+
+DISTRIBUTION CHARACTERISTICS:
+
+  • Skewness: -0.75
+  • Kurtosis: -0.73
+    • Min Rate: 4.3%
+    • Near Min Rate: 4.3%
+    • Max Rate: 15.7%
+    • Near Max Rate: 15.7%
+
+============================================================

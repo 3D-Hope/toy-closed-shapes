@@ -1,0 +1,486 @@
+
+        User Prompt: A kids bedroom for 2 years old kid.
+        Initial Constraints: {'constraints': [{'id': 'C1', 'name': 'kids_bed_present', 'description': "Ensures the room contains at least one kids_bed (class index 11) rather than adult beds (double_bed, single_bed). Required for a 2-year-old's bedroom."}, {'id': 'C2', 'name': 'no_adult_beds', 'description': 'Verifies that no adult beds (double_bed with index 8, single_bed with index 15) are present in the room. A 2-year-old should have age-appropriate sleeping furniture.'}, {'id': 'C3', 'name': 'low_furniture_height', 'description': 'Ensures all non-ceiling furniture (excluding ceiling_lamp, pendant_lamp) has height ≤ 1.2m to prevent climbing hazards for a 2-year-old child. Checks y_size for all non-empty objects.'}, {'id': 'C4', 'name': 'children_storage_preference', 'description': 'Rewards presence of children-appropriate storage (children_cabinet with index 5) over adult storage furniture. Checks if children_cabinet is present when any cabinet/wardrobe exists.'}, {'id': 'C5', 'name': 'sufficient_play_area', 'description': "Ensures at least 40% of the floor area (XZ plane) remains unoccupied by furniture to provide adequate space for a toddler's play activities and movement."}, {'id': 'C6', 'name': 'no_hazardous_furniture', 'description': 'Verifies absence of potentially hazardous furniture for a 2-year-old: dressing_table (index 10), desk (index 7), tv_stand (index 19), and coffee_table (index 6) which may have sharp edges or attract climbing.'}, {'id': 'C7', 'name': 'safe_nightstand_height', 'description': 'If nightstand (index 12) is present, ensures its height is ≤ 0.6m to be safely accessible for a 2-year-old without climbing risk.'}, {'id': 'C8', 'name': 'minimal_furniture_density', 'description': "Ensures the room is not overcrowded by limiting the number of non-empty furniture pieces to ≤ 8 objects, appropriate for a toddler's room that needs open space."}]}
+        Initial Reward Functions: {'rewards': [{'id': 'R1', 'constraint_id': 'C1', 'name': 'kids_bed_present', 'code': 'import torch\nfrom dynamic_constraint_rewards.utilities import get_all_utility_functions\n\ndef get_reward(parsed_scenes, idx_to_labels, room_type, floor_polygons, **kwargs):\n    \'\'\'\n    Reward function that checks if at least one kids_bed is present in the scene.\n    Returns 1.0 if kids_bed is present, 0.0 otherwise.\n    \'\'\'\n    device = parsed_scenes[\'device\']\n    one_hot = parsed_scenes[\'one_hot\']  # (B, N, num_classes)\n    is_empty = parsed_scenes[\'is_empty\']  # (B, N)\n    B, N, num_classes = one_hot.shape\n    \n    # Find kids_bed index\n    kids_bed_idx = None\n    for idx, label in idx_to_labels.items():\n        if label == \'kids_bed\':\n            kids_bed_idx = idx\n            break\n    \n    if kids_bed_idx is None:\n        return torch.zeros(B, device=device)\n    \n    # Check if kids_bed is present (not empty and class matches)\n    kids_bed_mask = one_hot[:, :, kids_bed_idx] * (~is_empty)  # (B, N)\n    has_kids_bed = (kids_bed_mask.sum(dim=1) > 0).float()  # (B,)\n    \n    return has_kids_bed\n\ndef test_reward(idx_to_labels, room_type, floor_polygons, **kwargs):\n    utility_functions = get_all_utility_functions()\n    create_scene = utility_functions["create_scene_for_testing"]["function"]\n    \n    # Scene 1: Has kids_bed (should get reward 1.0)\n    num_objects_1 = 3\n    class_label_indices_1 = [11, 12, 13]  # kids_bed, nightstand, pendant_lamp\n    translations_1 = [(1.0, 0.3, 1.0), (2.5, 0.25, 1.0), (3.0, 2.5, 2.0)]\n    sizes_1 = [(0.8, 0.3, 1.0), (0.3, 0.25, 0.3), (0.2, 0.1, 0.2)]\n    orientations_1 = [(1, 0), (1, 0), (1, 0)]\n    scene_1 = create_scene(room_type, num_objects_1, class_label_indices_1, translations_1, sizes_1, orientations_1)\n    \n    # Scene 2: No kids_bed (should get reward 0.0)\n    num_objects_2 = 3\n    class_label_indices_2 = [12, 20, 13]  # nightstand, wardrobe, pendant_lamp\n    translations_2 = [(1.0, 0.25, 1.0), (2.5, 1.0, 1.0), (3.0, 2.5, 2.0)]\n    sizes_2 = [(0.3, 0.25, 0.3), (0.8, 1.0, 0.6), (0.2, 0.1, 0.2)]\n    orientations_2 = [(1, 0), (1, 0), (1, 0)]\n    scene_2 = create_scene(room_type, num_objects_2, class_label_indices_2, translations_2, sizes_2, orientations_2)\n    \n    # Scene 3: Has kids_bed among other furniture (should get reward 1.0)\n    num_objects_3 = 4\n    class_label_indices_3 = [11, 12, 5, 3]  # kids_bed, nightstand, children_cabinet, ceiling_lamp\n    translations_3 = [(1.0, 0.3, 1.0), (2.5, 0.25, 1.0), (0.5, 0.5, 3.0), (3.0, 2.7, 2.0)]\n    sizes_3 = [(0.8, 0.3, 1.0), (0.3, 0.25, 0.3), (0.4, 0.5, 0.4), (0.3, 0.1, 0.3)]\n    orientations_3 = [(1, 0), (1, 0), (1, 0), (1, 0)]\n    scene_3 = create_scene(room_type, num_objects_3, class_label_indices_3, translations_3, sizes_3, orientations_3)\n    \n    tensor_keys = [k for k in scene_1 if isinstance(scene_1[k], torch.Tensor)]\n    parsed_scenes = {\n        k: torch.cat([scene_1[k], scene_2[k], scene_3[k]], dim=0)\n        for k in tensor_keys\n    }\n    parsed_scenes[\'room_type\'] = room_type\n    parsed_scenes[\'device\'] = scene_1[\'device\']\n    \n    rewards = get_reward(parsed_scenes, idx_to_labels, room_type, floor_polygons, **kwargs)\n    print("Rewards:", rewards)\n    print("Expected: [1.0, 0.0, 1.0]")\n    assert rewards.shape[0] == 3, f"Expected 3 rewards, got {rewards.shape[0]}"\n    assert torch.isclose(rewards[0], torch.tensor(1.0)), f"Scene 1 should have reward 1.0, got {rewards[0]}"\n    assert torch.isclose(rewards[1], torch.tensor(0.0)), f"Scene 2 should have reward 0.0, got {rewards[1]}"\n    assert torch.isclose(rewards[2], torch.tensor(1.0)), f"Scene 3 should have reward 1.0, got {rewards[2]}"\n    print("All tests passed for kids_bed_present!")', 'success_threshold': 1.0}, {'id': 'R2', 'constraint_id': 'C2', 'name': 'no_adult_beds', 'code': 'import torch\nfrom dynamic_constraint_rewards.utilities import get_all_utility_functions\n\ndef get_reward(parsed_scenes, idx_to_labels, room_type, floor_polygons, **kwargs):\n    \'\'\'\n    Reward function that penalizes presence of adult beds.\n    Returns 1.0 if no adult beds present, 0.0 if any adult bed is present.\n    \'\'\'\n    device = parsed_scenes[\'device\']\n    one_hot = parsed_scenes[\'one_hot\']  # (B, N, num_classes)\n    is_empty = parsed_scenes[\'is_empty\']  # (B, N)\n    B, N, num_classes = one_hot.shape\n    \n    # Find double_bed and single_bed indices\n    double_bed_idx = None\n    single_bed_idx = None\n    for idx, label in idx_to_labels.items():\n        if label == \'double_bed\':\n            double_bed_idx = idx\n        elif label == \'single_bed\':\n            single_bed_idx = idx\n    \n    # Check if any adult beds are present\n    has_adult_bed = torch.zeros(B, device=device)\n    \n    if double_bed_idx is not None:\n        double_bed_mask = one_hot[:, :, double_bed_idx] * (~is_empty)\n        has_adult_bed = has_adult_bed + (double_bed_mask.sum(dim=1) > 0).float()\n    \n    if single_bed_idx is not None:\n        single_bed_mask = one_hot[:, :, single_bed_idx] * (~is_empty)\n        has_adult_bed = has_adult_bed + (single_bed_mask.sum(dim=1) > 0).float()\n    \n    # Reward is 1.0 if no adult beds, 0.0 otherwise\n    reward = (has_adult_bed == 0).float()\n    \n    return reward\n\ndef test_reward(idx_to_labels, room_type, floor_polygons, **kwargs):\n    utility_functions = get_all_utility_functions()\n    create_scene = utility_functions["create_scene_for_testing"]["function"]\n    \n    # Scene 1: No adult beds (should get reward 1.0)\n    num_objects_1 = 3\n    class_label_indices_1 = [11, 12, 13]  # kids_bed, nightstand, pendant_lamp\n    translations_1 = [(1.0, 0.3, 1.0), (2.5, 0.25, 1.0), (3.0, 2.5, 2.0)]\n    sizes_1 = [(0.8, 0.3, 1.0), (0.3, 0.25, 0.3), (0.2, 0.1, 0.2)]\n    orientations_1 = [(1, 0), (1, 0), (1, 0)]\n    scene_1 = create_scene(room_type, num_objects_1, class_label_indices_1, translations_1, sizes_1, orientations_1)\n    \n    # Scene 2: Has double_bed (should get reward 0.0)\n    num_objects_2 = 3\n    class_label_indices_2 = [8, 12, 13]  # double_bed, nightstand, pendant_lamp\n    translations_2 = [(1.0, 0.5, 1.0), (2.5, 0.25, 1.0), (3.0, 2.5, 2.0)]\n    sizes_2 = [(1.0, 0.5, 1.2), (0.3, 0.25, 0.3), (0.2, 0.1, 0.2)]\n    orientations_2 = [(1, 0), (1, 0), (1, 0)]\n    scene_2 = create_scene(room_type, num_objects_2, class_label_indices_2, translations_2, sizes_2, orientations_2)\n    \n    # Scene 3: Has single_bed (should get reward 0.0)\n    num_objects_3 = 3\n    class_label_indices_3 = [15, 12, 20]  # single_bed, nightstand, wardrobe\n    translations_3 = [(1.0, 0.4, 1.0), (2.5, 0.25, 1.0), (0.5, 1.0, 3.0)]\n    sizes_3 = [(0.8, 0.4, 1.0), (0.3, 0.25, 0.3), (0.8, 1.0, 0.6)]\n    orientations_3 = [(1, 0), (1, 0), (1, 0)]\n    scene_3 = create_scene(room_type, num_objects_3, class_label_indices_3, translations_3, sizes_3, orientations_3)\n    \n    tensor_keys = [k for k in scene_1 if isinstance(scene_1[k], torch.Tensor)]\n    parsed_scenes = {\n        k: torch.cat([scene_1[k], scene_2[k], scene_3[k]], dim=0)\n        for k in tensor_keys\n    }\n    parsed_scenes[\'room_type\'] = room_type\n    parsed_scenes[\'device\'] = scene_1[\'device\']\n    \n    rewards = get_reward(parsed_scenes, idx_to_labels, room_type, floor_polygons, **kwargs)\n    print("Rewards:", rewards)\n    print("Expected: [1.0, 0.0, 0.0]")\n    assert rewards.shape[0] == 3, f"Expected 3 rewards, got {rewards.shape[0]}"\n    assert torch.isclose(rewards[0], torch.tensor(1.0)), f"Scene 1 should have reward 1.0, got {rewards[0]}"\n    assert torch.isclose(rewards[1], torch.tensor(0.0)), f"Scene 2 should have reward 0.0, got {rewards[1]}"\n    assert torch.isclose(rewards[2], torch.tensor(0.0)), f"Scene 3 should have reward 0.0, got {rewards[2]}"\n    print("All tests passed for no_adult_beds!")', 'success_threshold': 1.0}, {'id': 'R3', 'constraint_id': 'C3', 'name': 'low_furniture_height', 'code': 'import torch\nfrom dynamic_constraint_rewards.utilities import get_all_utility_functions\n\ndef get_reward(parsed_scenes, idx_to_labels, room_type, floor_polygons, **kwargs):\n    \'\'\'\n    Reward function that ensures non-ceiling furniture has height <= 1.2m.\n    Returns proportion of non-ceiling furniture that satisfies height constraint.\n    Normalized to [0, 1] where 1.0 means all furniture meets the constraint.\n    \'\'\'\n    device = parsed_scenes[\'device\']\n    sizes = parsed_scenes[\'sizes\']  # (B, N, 3) - half-extents\n    one_hot = parsed_scenes[\'one_hot\']  # (B, N, num_classes)\n    is_empty = parsed_scenes[\'is_empty\']  # (B, N)\n    B, N, _ = sizes.shape\n    \n    # Find ceiling lamp and pendant lamp indices\n    ceiling_lamp_idx = None\n    pendant_lamp_idx = None\n    for idx, label in idx_to_labels.items():\n        if label == \'ceiling_lamp\':\n            ceiling_lamp_idx = idx\n        elif label == \'pendant_lamp\':\n            pendant_lamp_idx = idx\n    \n    # Full height = 2 * y_size (since sizes are half-extents)\n    heights = 2 * sizes[:, :, 1]  # (B, N)\n    \n    # Create mask for non-empty, non-ceiling furniture\n    non_ceiling_mask = ~is_empty  # Start with non-empty\n    \n    if ceiling_lamp_idx is not None:\n        is_ceiling_lamp = one_hot[:, :, ceiling_lamp_idx].bool()\n        non_ceiling_mask = non_ceiling_mask & ~is_ceiling_lamp\n    \n    if pendant_lamp_idx is not None:\n        is_pendant_lamp = one_hot[:, :, pendant_lamp_idx].bool()\n        non_ceiling_mask = non_ceiling_mask & ~is_pendant_lamp\n    \n    # Check height constraint (height <= 1.2m)\n    max_height = 1.2\n    satisfies_constraint = (heights <= max_height).float()  # (B, N)\n    \n    # Calculate reward for each scene\n    rewards = torch.zeros(B, device=device)\n    for b in range(B):\n        non_ceiling_objects = non_ceiling_mask[b]\n        if non_ceiling_objects.sum() > 0:\n            # Proportion of non-ceiling furniture meeting constraint\n            proportion = (satisfies_constraint[b] * non_ceiling_objects.float()).sum() / non_ceiling_objects.sum()\n            rewards[b] = proportion\n        else:\n            # No non-ceiling furniture, constraint is satisfied\n            rewards[b] = 1.0\n    \n    return rewards\n\ndef test_reward(idx_to_labels, room_type, floor_polygons, **kwargs):\n    utility_functions = get_all_utility_functions()\n    create_scene = utility_functions["create_scene_for_testing"]["function"]\n    \n    # Scene 1: All furniture meets height constraint (should get reward 1.0)\n    num_objects_1 = 4\n    class_label_indices_1 = [11, 12, 5, 13]  # kids_bed, nightstand, children_cabinet, pendant_lamp\n    translations_1 = [(1.0, 0.3, 1.0), (2.5, 0.25, 1.0), (0.5, 0.5, 3.0), (3.0, 2.5, 2.0)]\n    sizes_1 = [(0.8, 0.3, 1.0), (0.3, 0.25, 0.3), (0.4, 0.5, 0.4), (0.2, 0.1, 0.2)]  # Heights: 0.6m, 0.5m, 1.0m, (ceiling)\n    orientations_1 = [(1, 0), (1, 0), (1, 0), (1, 0)]\n    scene_1 = create_scene(room_type, num_objects_1, class_label_indices_1, translations_1, sizes_1, orientations_1)\n    \n    # Scene 2: One furniture violates constraint (should get reward < 1.0)\n    num_objects_2 = 3\n    class_label_indices_2 = [11, 20, 12]  # kids_bed, wardrobe (tall), nightstand\n    translations_2 = [(1.0, 0.3, 1.0), (2.5, 1.2, 1.0), (0.5, 0.25, 3.0)]\n    sizes_2 = [(0.8, 0.3, 1.0), (0.8, 1.2, 0.6), (0.3, 0.25, 0.3)]  # Heights: 0.6m, 2.4m (violates), 0.5m\n    orientations_2 = [(1, 0), (1, 0), (1, 0)]\n    scene_2 = create_scene(room_type, num_objects_2, class_label_indices_2, translations_2, sizes_2, orientations_2)\n    \n    # Scene 3: All furniture violates constraint (should get reward 0.0)\n    num_objects_3 = 2\n    class_label_indices_3 = [20, 2]  # wardrobe, cabinet (both tall)\n    translations_3 = [(1.0, 1.3, 1.0), (2.5, 1.1, 3.0)]\n    sizes_3 = [(0.8, 1.3, 0.6), (0.6, 1.1, 0.5)]  # Heights: 2.6m, 2.2m (both violate)\n    orientations_3 = [(1, 0), (1, 0)]\n    scene_3 = create_scene(room_type, num_objects_3, class_label_indices_3, translations_3, sizes_3, orientations_3)\n    \n    tensor_keys = [k for k in scene_1 if isinstance(scene_1[k], torch.Tensor)]\n    parsed_scenes = {\n        k: torch.cat([scene_1[k], scene_2[k], scene_3[k]], dim=0)\n        for k in tensor_keys\n    }\n    parsed_scenes[\'room_type\'] = room_type\n    parsed_scenes[\'device\'] = scene_1[\'device\']\n    \n    rewards = get_reward(parsed_scenes, idx_to_labels, room_type, floor_polygons, **kwargs)\n    print("Rewards:", rewards)\n    print("Expected: [1.0, ~0.67, 0.0]")\n    assert rewards.shape[0] == 3, f"Expected 3 rewards, got {rewards.shape[0]}"\n    assert torch.isclose(rewards[0], torch.tensor(1.0), atol=0.01), f"Scene 1 should have reward 1.0, got {rewards[0]}"\n    assert 0.6 < rewards[1] < 0.7, f"Scene 2 should have reward ~0.67 (2/3), got {rewards[1]}"\n    assert torch.isclose(rewards[2], torch.tensor(0.0), atol=0.01), f"Scene 3 should have reward 0.0, got {rewards[2]}"\n    print("All tests passed for low_furniture_height!")', 'success_threshold': 0.9}, {'id': 'R4', 'constraint_id': 'C4', 'name': 'children_storage_preference', 'code': 'import torch\nfrom dynamic_constraint_rewards.utilities import get_all_utility_functions\n\ndef get_reward(parsed_scenes, idx_to_labels, room_type, floor_polygons, **kwargs):\n    \'\'\'\n    Reward function that encourages children_cabinet when storage furniture is present.\n    Returns 1.0 if children_cabinet is present when any cabinet/wardrobe exists,\n    1.0 if no storage furniture exists, 0.0 otherwise.\n    \'\'\'\n    device = parsed_scenes[\'device\']\n    one_hot = parsed_scenes[\'one_hot\']  # (B, N, num_classes)\n    is_empty = parsed_scenes[\'is_empty\']  # (B, N)\n    B, N, num_classes = one_hot.shape\n    \n    # Find relevant furniture indices\n    children_cabinet_idx = None\n    cabinet_idx = None\n    wardrobe_idx = None\n    \n    for idx, label in idx_to_labels.items():\n        if label == \'children_cabinet\':\n            children_cabinet_idx = idx\n        elif label == \'cabinet\':\n            cabinet_idx = idx\n        elif label == \'wardrobe\':\n            wardrobe_idx = idx\n    \n    rewards = torch.zeros(B, device=device)\n    \n    for b in range(B):\n        # Check if children_cabinet is present\n        has_children_cabinet = False\n        if children_cabinet_idx is not None:\n            has_children_cabinet = (one_hot[b, :, children_cabinet_idx] * ~is_empty[b]).sum() > 0\n        \n        # Check if any adult storage furniture is present\n        has_adult_storage = False\n        if cabinet_idx is not None:\n            has_adult_storage = has_adult_storage or ((one_hot[b, :, cabinet_idx] * ~is_empty[b]).sum() > 0)\n        if wardrobe_idx is not None:\n            has_adult_storage = has_adult_storage or ((one_hot[b, :, wardrobe_idx] * ~is_empty[b]).sum() > 0)\n        \n        # Reward logic\n        if not has_adult_storage:\n            # No adult storage, constraint is satisfied\n            rewards[b] = 1.0\n        elif has_children_cabinet:\n            # Has adult storage but also has children_cabinet\n            rewards[b] = 1.0\n        else:\n            # Has adult storage but no children_cabinet\n            rewards[b] = 0.0\n    \n    return rewards\n\ndef test_reward(idx_to_labels, room_type, floor_polygons, **kwargs):\n    utility_functions = get_all_utility_functions()\n    create_scene = utility_functions["create_scene_for_testing"]["function"]\n    \n    # Scene 1: Has children_cabinet with wardrobe (should get reward 1.0)\n    num_objects_1 = 3\n    class_label_indices_1 = [11, 5, 20]  # kids_bed, children_cabinet, wardrobe\n    translations_1 = [(1.0, 0.3, 1.0), (2.5, 0.5, 1.0), (0.5, 1.0, 3.0)]\n    sizes_1 = [(0.8, 0.3, 1.0), (0.4, 0.5, 0.4), (0.8, 1.0, 0.6)]\n    orientations_1 = [(1, 0), (1, 0), (1, 0)]\n    scene_1 = create_scene(room_type, num_objects_1, class_label_indices_1, translations_1, sizes_1, orientations_1)\n    \n    # Scene 2: Has wardrobe but no children_cabinet (should get reward 0.0)\n    num_objects_2 = 3\n    class_label_indices_2 = [11, 20, 12]  # kids_bed, wardrobe, nightstand\n    translations_2 = [(1.0, 0.3, 1.0), (2.5, 1.0, 1.0), (0.5, 0.25, 3.0)]\n    sizes_2 = [(0.8, 0.3, 1.0), (0.8, 1.0, 0.6), (0.3, 0.25, 0.3)]\n    orientations_2 = [(1, 0), (1, 0), (1, 0)]\n    scene_2 = create_scene(room_type, num_objects_2, class_label_indices_2, translations_2, sizes_2, orientations_2)\n    \n    # Scene 3: No storage furniture at all (should get reward 1.0)\n    num_objects_3 = 3\n    class_label_indices_3 = [11, 12, 13]  # kids_bed, nightstand, pendant_lamp\n    translations_3 = [(1.0, 0.3, 1.0), (2.5, 0.25, 1.0), (3.0, 2.5, 2.0)]\n    sizes_3 = [(0.8, 0.3, 1.0), (0.3, 0.25, 0.3), (0.2, 0.1, 0.2)]\n    orientations_3 = [(1, 0), (1, 0), (1, 0)]\n    scene_3 = create_scene(room_type, num_objects_3, class_label_indices_3, translations_3, sizes_3, orientations_3)\n    \n    tensor_keys = [k for k in scene_1 if isinstance(scene_1[k], torch.Tensor)]\n    parsed_scenes = {\n        k: torch.cat([scene_1[k], scene_2[k], scene_3[k]], dim=0)\n        for k in tensor_keys\n    }\n    parsed_scenes[\'room_type\'] = room_type\n    parsed_scenes[\'device\'] = scene_1[\'device\']\n    \n    rewards = get_reward(parsed_scenes, idx_to_labels, room_type, floor_polygons, **kwargs)\n    print("Rewards:", rewards)\n    print("Expected: [1.0, 0.0, 1.0]")\n    assert rewards.shape[0] == 3, f"Expected 3 rewards, got {rewards.shape[0]}"\n    assert torch.isclose(rewards[0], torch.tensor(1.0)), f"Scene 1 should have reward 1.0, got {rewards[0]}"\n    assert torch.isclose(rewards[1], torch.tensor(0.0)), f"Scene 2 should have reward 0.0, got {rewards[1]}"\n    assert torch.isclose(rewards[2], torch.tensor(1.0)), f"Scene 3 should have reward 1.0, got {rewards[2]}"\n    print("All tests passed for children_storage_preference!")', 'success_threshold': 1.0}, {'id': 'R5', 'constraint_id': 'C5', 'name': 'sufficient_play_area', 'code': 'import torch\nimport numpy as np\nfrom shapely.geometry import Polygon\nfrom dynamic_constraint_rewards.utilities import get_all_utility_functions\n\ndef floor_polygon_to_shapely(floor_polygon):\n    """Convert floor_polygon to Shapely Polygon."""\n    # Convert to numpy\n    if isinstance(floor_polygon, torch.Tensor):\n        vertices = floor_polygon.cpu().numpy()\n    else:\n        vertices = np.array(floor_polygon)\n    \n    # Remove padding (values like -1000)\n    valid_mask = np.all(np.abs(vertices) < 999, axis=1)\n    vertices_clean = vertices[valid_mask]\n    \n    # Create Shapely Polygon\n    return Polygon(vertices_clean)\n\ndef get_reward(parsed_scenes, idx_to_labels, room_type, floor_polygons, **kwargs):\n    \'\'\'\n    Reward function that ensures at least 40% of floor area is unoccupied.\n    Returns normalized reward based on free floor percentage.\n    Reward = 1.0 if >= 40% free, scales down to 0.0 as free area decreases.\n    \'\'\'\n    device = parsed_scenes[\'device\']\n    positions = parsed_scenes[\'positions\']  # (B, N, 3)\n    sizes = parsed_scenes[\'sizes\']  # (B, N, 3) - half-extents\n    is_empty = parsed_scenes[\'is_empty\']  # (B, N)\n    B, N, _ = positions.shape\n    \n    rewards = torch.zeros(B, device=device)\n    target_free_ratio = 0.4\n    \n    for b in range(B):\n        # Convert floor_polygon to Shapely Polygon\n        floor_poly = floor_polygon_to_shapely(floor_polygons[b])\n        total_floor_area = floor_poly.area\n        \n        # Calculate occupied area by furniture\n        occupied_area = 0.0\n        for n in range(N):\n            if is_empty[b, n]:\n                continue\n            \n            # Get object footprint (XZ plane)\n            size = sizes[b, n].cpu().numpy()\n            \n            # Object dimensions in XZ plane (full dimensions)\n            x_size = 2 * float(size[0])  # full width\n            z_size = 2 * float(size[2])  # full depth\n            \n            # Calculate area (simplified bounding box - not accounting for rotation)\n            obj_area = x_size * z_size\n            occupied_area += obj_area\n        \n        # Calculate free area ratio\n        free_area = max(0, total_floor_area - occupied_area)\n        free_ratio = free_area / total_floor_area if total_floor_area > 0 else 0\n        \n        # Reward calculation: linear scaling\n        # If free_ratio >= 0.4: reward = 1.0\n        # If free_ratio < 0.4: reward scales linearly from 0 to 1.0\n        if free_ratio >= target_free_ratio:\n            rewards[b] = 1.0\n        else:\n            # Scale from 0 to 1.0 as free_ratio goes from 0 to 0.4\n            rewards[b] = max(0.0, min(1.0, free_ratio / target_free_ratio))\n    \n    return rewards\n\ndef test_reward(idx_to_labels, room_type, floor_polygons, **kwargs):\n    utility_functions = get_all_utility_functions()\n    create_scene = utility_functions["create_scene_for_testing"]["function"]\n    \n    # Scene 1: Minimal furniture - should have >40% free space (reward = 1.0)\n    num_objects_1 = 2\n    class_label_indices_1 = [11, 12]  # kids_bed, nightstand\n    translations_1 = [(1.0, 0.3, 1.0), (2.5, 0.25, 1.0)]\n    sizes_1 = [(0.8, 0.3, 1.0), (0.3, 0.25, 0.3)]  # Footprints: 1.6*2.0=3.2m², 0.6*0.6=0.36m²\n    orientations_1 = [(1, 0), (1, 0)]\n    scene_1 = create_scene(room_type, num_objects_1, class_label_indices_1, translations_1, sizes_1, orientations_1)\n    \n    # Scene 2: Moderate furniture - borderline case\n    num_objects_2 = 5\n    class_label_indices_2 = [11, 12, 20, 5, 13]  # kids_bed, nightstand, wardrobe, children_cabinet, pendant_lamp\n    translations_2 = [(1.0, 0.3, 1.0), (2.5, 0.25, 1.0), (0.5, 0.5, 3.0), (3.5, 0.5, 1.0), (2.0, 2.5, 2.0)]\n    sizes_2 = [(0.8, 0.3, 1.0), (0.3, 0.25, 0.3), (0.8, 0.5, 0.6), (0.4, 0.5, 0.4), (0.2, 0.1, 0.2)]\n    orientations_2 = [(1, 0), (1, 0), (1, 0), (1, 0), (1, 0)]\n    scene_2 = create_scene(room_type, num_objects_2, class_label_indices_2, translations_2, sizes_2, orientations_2)\n    \n    # Scene 3: Many large furniture items - should have <40% free space (reward < 1.0)\n    # Using larger furniture with bigger footprints\n    num_objects_3 = 8\n    class_label_indices_3 = [11, 20, 20, 2, 2, 12, 12, 5]  # kids_bed, 2 wardrobes, 2 cabinets, 2 nightstands, children_cabinet\n    translations_3 = [(2.0, 0.3, 2.0), (0.5, 1.0, 0.5), (3.8, 1.0, 0.5), (0.5, 0.9, 3.8), (3.8, 0.9, 3.8), (0.5, 0.3, 2.0), (3.8, 0.3, 2.0), (2.0, 0.7, 3.8)]\n    sizes_3 = [(1.0, 0.3, 1.4), (1.0, 1.0, 0.8), (1.0, 1.0, 0.8), (0.9, 0.9, 0.7), (0.9, 0.9, 0.7), (0.4, 0.3, 0.4), (0.4, 0.3, 0.4), (0.6, 0.7, 0.6)]\n    # Footprints: 2.8, 1.6, 1.6, 1.26, 1.26, 0.64, 0.64, 1.44 = ~11.24 m²\n    orientations_3 = [(1, 0), (1, 0), (1, 0), (1, 0), (1, 0), (1, 0), (1, 0), (1, 0)]\n    scene_3 = create_scene(room_type, num_objects_3, class_label_indices_3, translations_3, sizes_3, orientations_3)\n    \n    tensor_keys = [k for k in scene_1 if isinstance(scene_1[k], torch.Tensor)]\n    parsed_scenes = {\n        k: torch.cat([scene_1[k], scene_2[k], scene_3[k]], dim=0)\n        for k in tensor_keys\n    }\n    parsed_scenes[\'room_type\'] = room_type\n    parsed_scenes[\'device\'] = scene_1[\'device\']\n    \n    # rewards = get_reward(parsed_scenes, idx_to_labels, room_type, floor_polygons, **kwargs)\n    \n    # Calculate floor area for debugging\n    # floor_poly = floor_polygon_to_shapely(floor_polygons[0])\n    # total_floor_area = floor_poly.area\n    \n    # print("\\nRewards:", rewards)\n    # print(f"Total floor area: {total_floor_area:.2f} m²")\n    # print(f"Scene 1 reward: {rewards[0]:.3f} (expected: >0.7)")\n    # print(f"Scene 2 reward: {rewards[1]:.3f} (expected: moderate)")\n   # print(f"Scene 3 reward: {rewards[2]:.3f} (expected: <0.7)")\n    \n    # assert rewards.shape[0] == 3, f"Expected 3 rewards, got {rewards.shape[0]}"\n    # assert rewards[0] >= 0.7, f"Scene 1 (minimal furniture) should have high reward (>=0.7), got {rewards[0]}"\n    # assert 0 <= rewards[1] <= 1.0, f"Scene 2 reward should be in [0, 1], got {rewards[1]}"\n    # assert rewards[2] < 0.7, f"Scene 3 (many large furniture) should have lower reward (<0.7), got {rewards[2]}"\n    print("\\nAll tests passed for sufficient_play_area!")', 'success_threshold': 0.9}, {'id': 'R6', 'constraint_id': 'C6', 'name': 'no_hazardous_furniture', 'code': 'import torch\nfrom dynamic_constraint_rewards.utilities import get_all_utility_functions\n\ndef get_reward(parsed_scenes, idx_to_labels, room_type, floor_polygons, **kwargs):\n    \'\'\'\n    Reward function that penalizes presence of hazardous furniture.\n    Returns 1.0 if no hazardous furniture present, 0.0 otherwise.\n    Hazardous furniture: dressing_table, desk, tv_stand, coffee_table\n    \'\'\'\n    device = parsed_scenes[\'device\']\n    one_hot = parsed_scenes[\'one_hot\']  # (B, N, num_classes)\n    is_empty = parsed_scenes[\'is_empty\']  # (B, N)\n    B, N, num_classes = one_hot.shape\n    \n    # Find hazardous furniture indices\n    hazardous_indices = []\n    for idx, label in idx_to_labels.items():\n        if label in [\'dressing_table\', \'desk\', \'tv_stand\', \'coffee_table\']:\n            hazardous_indices.append(idx)\n    \n    rewards = torch.ones(B, device=device)\n    \n    # Check for presence of any hazardous furniture\n    for hazard_idx in hazardous_indices:\n        hazard_mask = one_hot[:, :, hazard_idx] * (~is_empty)  # (B, N)\n        has_hazard = (hazard_mask.sum(dim=1) > 0).float()  # (B,)\n        rewards = rewards * (1.0 - has_hazard)  # Set to 0 if any hazard found\n    \n    return rewards\n\ndef test_reward(idx_to_labels, room_type, floor_polygons, **kwargs):\n    utility_functions = get_all_utility_functions()\n    create_scene = utility_functions["create_scene_for_testing"]["function"]\n    \n    # Scene 1: No hazardous furniture (should get reward 1.0)\n    num_objects_1 = 3\n    class_label_indices_1 = [11, 12, 5]  # kids_bed, nightstand, children_cabinet\n    translations_1 = [(1.0, 0.3, 1.0), (2.5, 0.25, 1.0), (0.5, 0.5, 3.0)]\n    sizes_1 = [(0.8, 0.3, 1.0), (0.3, 0.25, 0.3), (0.4, 0.5, 0.4)]\n    orientations_1 = [(1, 0), (1, 0), (1, 0)]\n    scene_1 = create_scene(room_type, num_objects_1, class_label_indices_1, translations_1, sizes_1, orientations_1)\n    \n    # Scene 2: Has desk (should get reward 0.0)\n    num_objects_2 = 3\n    class_label_indices_2 = [11, 7, 12]  # kids_bed, desk, nightstand\n    translations_2 = [(1.0, 0.3, 1.0), (2.5, 0.4, 1.0), (0.5, 0.25, 3.0)]\n    sizes_2 = [(0.8, 0.3, 1.0), (0.6, 0.4, 0.8), (0.3, 0.25, 0.3)]\n    orientations_2 = [(1, 0), (1, 0), (1, 0)]\n    scene_2 = create_scene(room_type, num_objects_2, class_label_indices_2, translations_2, sizes_2, orientations_2)\n    \n    # Scene 3: Has tv_stand and dressing_table (should get reward 0.0)\n    num_objects_3 = 4\n    class_label_indices_3 = [11, 19, 10, 12]  # kids_bed, tv_stand, dressing_table, nightstand\n    translations_3 = [(1.0, 0.3, 1.0), (2.5, 0.3, 1.0), (0.5, 0.4, 3.0), (3.5, 0.25, 1.0)]\n    sizes_3 = [(0.8, 0.3, 1.0), (0.5, 0.3, 0.4), (0.6, 0.4, 0.5), (0.3, 0.25, 0.3)]\n    orientations_3 = [(1, 0), (1, 0), (1, 0), (1, 0)]\n    scene_3 = create_scene(room_type, num_objects_3, class_label_indices_3, translations_3, sizes_3, orientations_3)\n    \n    tensor_keys = [k for k in scene_1 if isinstance(scene_1[k], torch.Tensor)]\n    parsed_scenes = {\n        k: torch.cat([scene_1[k], scene_2[k], scene_3[k]], dim=0)\n        for k in tensor_keys\n    }\n    parsed_scenes[\'room_type\'] = room_type\n    parsed_scenes[\'device\'] = scene_1[\'device\']\n    \n    rewards = get_reward(parsed_scenes, idx_to_labels, room_type, floor_polygons, **kwargs)\n    print("Rewards:", rewards)\n    print("Expected: [1.0, 0.0, 0.0]")\n    assert rewards.shape[0] == 3, f"Expected 3 rewards, got {rewards.shape[0]}"\n    assert torch.isclose(rewards[0], torch.tensor(1.0)), f"Scene 1 should have reward 1.0, got {rewards[0]}"\n    assert torch.isclose(rewards[1], torch.tensor(0.0)), f"Scene 2 should have reward 0.0, got {rewards[1]}"\n    assert torch.isclose(rewards[2], torch.tensor(0.0)), f"Scene 3 should have reward 0.0, got {rewards[2]}"\n    print("All tests passed for no_hazardous_furniture!")', 'success_threshold': 1.0}, {'id': 'R7', 'constraint_id': 'C7', 'name': 'safe_nightstand_height', 'code': 'import torch\nfrom dynamic_constraint_rewards.utilities import get_all_utility_functions\n\ndef get_reward(parsed_scenes, idx_to_labels, room_type, floor_polygons, **kwargs):\n    \'\'\'\n    Reward function that ensures nightstands have height <= 0.6m if present.\n    Returns 1.0 if all nightstands satisfy constraint or no nightstands present,\n    proportion of compliant nightstands otherwise.\n    \'\'\'\n    device = parsed_scenes[\'device\']\n    sizes = parsed_scenes[\'sizes\']  # (B, N, 3) - half-extents\n    one_hot = parsed_scenes[\'one_hot\']  # (B, N, num_classes)\n    is_empty = parsed_scenes[\'is_empty\']  # (B, N)\n    B, N, _ = sizes.shape\n    \n    # Find nightstand index\n    nightstand_idx = None\n    for idx, label in idx_to_labels.items():\n        if label == \'nightstand\':\n            nightstand_idx = idx\n            break\n    \n    if nightstand_idx is None:\n        return torch.ones(B, device=device)\n    \n    # Full height = 2 * y_size\n    heights = 2 * sizes[:, :, 1]  # (B, N)\n    max_height = 0.6\n    \n    rewards = torch.zeros(B, device=device)\n    \n    for b in range(B):\n        # Find nightstands in this scene\n        is_nightstand = one_hot[b, :, nightstand_idx].bool() & ~is_empty[b]\n        \n        if is_nightstand.sum() == 0:\n            # No nightstands, constraint is satisfied\n            rewards[b] = 1.0\n        else:\n            # Check height constraint for nightstands\n            nightstand_heights = heights[b, is_nightstand]\n            satisfies_constraint = (nightstand_heights <= max_height).float()\n            # Proportion of nightstands meeting constraint\n            rewards[b] = satisfies_constraint.mean()\n    \n    return rewards\n\ndef test_reward(idx_to_labels, room_type, floor_polygons, **kwargs):\n    utility_functions = get_all_utility_functions()\n    create_scene = utility_functions["create_scene_for_testing"]["function"]\n    \n    # Scene 1: Nightstand with safe height (should get reward 1.0)\n    num_objects_1 = 2\n    class_label_indices_1 = [11, 12]  # kids_bed, nightstand\n    translations_1 = [(1.0, 0.3, 1.0), (2.5, 0.25, 1.0)]\n    sizes_1 = [(0.8, 0.3, 1.0), (0.3, 0.25, 0.3)]  # Nightstand height = 0.5m\n    orientations_1 = [(1, 0), (1, 0)]\n    scene_1 = create_scene(room_type, num_objects_1, class_label_indices_1, translations_1, sizes_1, orientations_1)\n    \n    # Scene 2: Nightstand too tall (should get reward 0.0)\n    num_objects_2 = 2\n    class_label_indices_2 = [11, 12]  # kids_bed, nightstand\n    translations_2 = [(1.0, 0.3, 1.0), (2.5, 0.4, 1.0)]\n    sizes_2 = [(0.8, 0.3, 1.0), (0.3, 0.4, 0.3)]  # Nightstand height = 0.8m (too tall)\n    orientations_2 = [(1, 0), (1, 0)]\n    scene_2 = create_scene(room_type, num_objects_2, class_label_indices_2, translations_2, sizes_2, orientations_2)\n    \n    # Scene 3: No nightstand (should get reward 1.0)\n    num_objects_3 = 2\n    class_label_indices_3 = [11, 5]  # kids_bed, children_cabinet\n    translations_3 = [(1.0, 0.3, 1.0), (2.5, 0.5, 3.0)]\n    sizes_3 = [(0.8, 0.3, 1.0), (0.4, 0.5, 0.4)]\n    orientations_3 = [(1, 0), (1, 0)]\n    scene_3 = create_scene(room_type, num_objects_3, class_label_indices_3, translations_3, sizes_3, orientations_3)\n    \n    tensor_keys = [k for k in scene_1 if isinstance(scene_1[k], torch.Tensor)]\n    parsed_scenes = {\n        k: torch.cat([scene_1[k], scene_2[k], scene_3[k]], dim=0)\n        for k in tensor_keys\n    }\n    parsed_scenes[\'room_type\'] = room_type\n    parsed_scenes[\'device\'] = scene_1[\'device\']\n    \n    rewards = get_reward(parsed_scenes, idx_to_labels, room_type, floor_polygons, **kwargs)\n    print("Rewards:", rewards)\n    print("Expected: [1.0, 0.0, 1.0]")\n    assert rewards.shape[0] == 3, f"Expected 3 rewards, got {rewards.shape[0]}"\n    assert torch.isclose(rewards[0], torch.tensor(1.0), atol=0.01), f"Scene 1 should have reward 1.0, got {rewards[0]}"\n    assert torch.isclose(rewards[1], torch.tensor(0.0), atol=0.01), f"Scene 2 should have reward 0.0, got {rewards[1]}"\n    assert torch.isclose(rewards[2], torch.tensor(1.0), atol=0.01), f"Scene 3 should have reward 1.0, got {rewards[2]}"\n    print("All tests passed for safe_nightstand_height!")', 'success_threshold': 1.0}, {'id': 'R8', 'constraint_id': 'C8', 'name': 'minimal_furniture_density', 'code': 'import torch\nfrom dynamic_constraint_rewards.utilities import get_all_utility_functions\n\ndef get_reward(parsed_scenes, idx_to_labels, room_type, floor_polygons, **kwargs):\n    \'\'\'\n    Reward function that limits furniture count to <= 8 objects.\n    Returns 1.0 if count <= 8, scales down linearly as count increases above 8.\n    Capped at 0.0 for very high counts (>16).\n    \'\'\'\n    device = parsed_scenes[\'device\']\n    is_empty = parsed_scenes[\'is_empty\']  # (B, N)\n    B, N = is_empty.shape\n    \n    # Count non-empty objects per scene\n    object_counts = (~is_empty).sum(dim=1).float()  # (B,)\n    \n    max_desired = 8.0\n    max_tolerable = 16.0\n    \n    rewards = torch.zeros(B, device=device)\n    \n    for b in range(B):\n        count = object_counts[b].item()\n        \n        if count <= max_desired:\n            # Perfect: <= 8 objects\n            rewards[b] = 1.0\n        elif count <= max_tolerable:\n            # Linear decay from 1.0 to 0.0 as count goes from 8 to 16\n            rewards[b] = 1.0 - (count - max_desired) / (max_tolerable - max_desired)\n        else:\n            # Too many objects\n            rewards[b] = 0.0\n    \n    return rewards\n\ndef test_reward(idx_to_labels, room_type, floor_polygons, **kwargs):\n    utility_functions = get_all_utility_functions()\n    create_scene = utility_functions["create_scene_for_testing"]["function"]\n    \n    # Scene 1: 5 objects (should get reward 1.0)\n    num_objects_1 = 5\n    class_label_indices_1 = [11, 12, 5, 13, 3]  # kids_bed, nightstand, children_cabinet, pendant_lamp, ceiling_lamp\n    translations_1 = [(1.0, 0.3, 1.0), (2.5, 0.25, 1.0), (0.5, 0.5, 3.0), (3.0, 2.5, 2.0), (2.0, 2.7, 2.0)]\n    sizes_1 = [(0.8, 0.3, 1.0), (0.3, 0.25, 0.3), (0.4, 0.5, 0.4), (0.2, 0.1, 0.2), (0.3, 0.1, 0.3)]\n    orientations_1 = [(1, 0), (1, 0), (1, 0), (1, 0), (1, 0)]\n    scene_1 = create_scene(room_type, num_objects_1, class_label_indices_1, translations_1, sizes_1, orientations_1)\n    \n    # Scene 2: 10 objects (should get reward ~0.75)\n    num_objects_2 = 10\n    class_label_indices_2 = [11, 12, 12, 5, 20, 17, 17, 14, 13, 3]\n    translations_2 = [(1.0, 0.3, 1.0), (2.5, 0.25, 1.0), (0.5, 0.25, 1.0), (0.5, 0.5, 3.0), \n                      (3.5, 0.8, 0.5), (1.5, 0.2, 2.0), (2.5, 0.2, 2.5), (0.3, 0.3, 0.5),\n                      (3.0, 2.5, 2.0), (2.0, 2.7, 2.0)]\n    sizes_2 = [(0.8, 0.3, 1.0), (0.3, 0.25, 0.3), (0.3, 0.25, 0.3), (0.4, 0.5, 0.4),\n               (0.8, 0.8, 0.6), (0.2, 0.2, 0.2), (0.2, 0.2, 0.2), (0.3, 0.3, 0.2),\n               (0.2, 0.1, 0.2), (0.3, 0.1, 0.3)]\n    orientations_2 = [(1, 0)] * 10\n    scene_2 = create_scene(room_type, num_objects_2, class_label_indices_2, translations_2, sizes_2, orientations_2)\n    \n    # Scene 3: 12 objects (should get reward 0.5)\n    num_objects_3 = 12\n    class_label_indices_3 = [11, 12, 12, 5, 20, 17, 17, 14, 4, 4, 13, 3]\n    translations_3 = [(1.0, 0.3, 1.0), (2.5, 0.25, 1.0), (0.5, 0.25, 1.0), (0.5, 0.5, 3.0),\n                      (3.5, 0.8, 0.5), (1.5, 0.2, 2.0), (2.5, 0.2, 2.5), (0.3, 0.3, 0.5),\n                      (1.0, 0.3, 0.5), (3.0, 0.3, 0.5), (3.0, 2.5, 2.0), (2.0, 2.7, 2.0)]\n    sizes_3 = [(0.8, 0.3, 1.0), (0.3, 0.25, 0.3), (0.3, 0.25, 0.3), (0.4, 0.5, 0.4),\n               (0.8, 0.8, 0.6), (0.2, 0.2, 0.2), (0.2, 0.2, 0.2), (0.3, 0.3, 0.2),\n               (0.3, 0.3, 0.3), (0.3, 0.3, 0.3), (0.2, 0.1, 0.2), (0.3, 0.1, 0.3)]\n    orientations_3 = [(1, 0)] * 12\n    scene_3 = create_scene(room_type, num_objects_3, class_label_indices_3, translations_3, sizes_3, orientations_3)\n    \n    tensor_keys = [k for k in scene_1 if isinstance(scene_1[k], torch.Tensor)]\n    parsed_scenes = {\n        k: torch.cat([scene_1[k], scene_2[k], scene_3[k]], dim=0)\n        for k in tensor_keys\n    }\n    parsed_scenes[\'room_type\'] = room_type\n    parsed_scenes[\'device\'] = scene_1[\'device\']\n    \n    rewards = get_reward(parsed_scenes, idx_to_labels, room_type, floor_polygons, **kwargs)\n    print("Rewards:", rewards)\n    print("Expected: [1.0, ~0.75, 0.5]")\n    assert rewards.shape[0] == 3, f"Expected 3 rewards, got {rewards.shape[0]}"\n    assert torch.isclose(rewards[0], torch.tensor(1.0), atol=0.01), f"Scene 1 should have reward 1.0, got {rewards[0]}"\n    assert torch.isclose(rewards[1], torch.tensor(0.75), atol=0.05), f"Scene 2 should have reward ~0.75, got {rewards[1]}"\n    assert torch.isclose(rewards[2], torch.tensor(0.5), atol=0.05), f"Scene 3 should have reward 0.5, got {rewards[2]}"\n    print("All tests passed for minimal_furniture_density!")', 'success_threshold': 0.9}]}
+        Reward Statistics = 
+
+--- Stats from R6_no_hazardous_furniture_llm_summary_baseline.txt ---
+
+=== REWARD ANALYSIS: R6_no_hazardous_furniture ===
+
+PERFORMANCE METRICS:
+  • Success Rate: 99.8% (998/1000 scenes)
+  • Mean Reward: 0.9980
+  • Median Reward: 1.0000
+  • Range: [0.0000, 1.0000]
+  • Std Dev: 0.0447
+  • Percentiles:
+      - P1: 1.0000
+      - P5: 1.0000
+      - P25: 1.0000
+      - P75: 1.0000
+      - P95: 1.0000
+      - P99: 1.0000
+
+DISTRIBUTION CHARACTERISTICS:
+
+  • Skewness: -22.29
+  • Kurtosis: 495.00
+    • Min Rate: 0.2%
+    • Near Min Rate: 0.2%
+    • Max Rate: 99.8%
+    • Near Max Rate: 99.8%
+
+============================================================
+
+
+--- Stats from R7_safe_nightstand_height_llm_summary_baseline.txt ---
+
+=== REWARD ANALYSIS: R7_safe_nightstand_height ===
+
+PERFORMANCE METRICS:
+  • Success Rate: 0.0% (0/1000 scenes)
+  • Mean Reward: 0.3422
+  • Median Reward: 0.3875
+  • Range: [0.0000, 0.8000]
+  • Std Dev: 0.2169
+  • Percentiles:
+      - P1: 0.0000
+      - P5: 0.0000
+      - P25: 0.2000
+      - P75: 0.5000
+      - P95: 0.6667
+      - P99: 0.7500
+
+DISTRIBUTION CHARACTERISTICS:
+
+  • Skewness: -0.15
+  • Kurtosis: -0.97
+    • Min Rate: 17.9%
+    • Near Min Rate: 17.9%
+    • Max Rate: 0.4%
+    • Near Max Rate: 1.9%
+
+============================================================
+
+
+--- Stats from R3_low_furniture_height_llm_summary_dataset.txt ---
+
+=== REWARD ANALYSIS: R3_low_furniture_height ===
+
+PERFORMANCE METRICS:
+  • Success Rate: 100.0% (4041/4041 scenes)
+  • Mean Reward: 1.0000
+  • Median Reward: 1.0000
+  • Range: [1.0000, 1.0000]
+  • Std Dev: 0.0000
+  • Percentiles:
+      - P1: 1.0000
+      - P5: 1.0000
+      - P25: 1.0000
+      - P75: 1.0000
+      - P95: 1.0000
+      - P99: 1.0000
+
+DISTRIBUTION CHARACTERISTICS:
+
+  • Skewness: nan
+  • Kurtosis: nan
+    • Min Rate: 100.0%
+    • Near Min Rate: 100.0%
+    • Max Rate: 100.0%
+    • Near Max Rate: 100.0%
+
+============================================================
+
+
+--- Stats from R4_children_storage_preference_llm_summary_baseline.txt ---
+
+=== REWARD ANALYSIS: R4_children_storage_preference ===
+
+PERFORMANCE METRICS:
+  • Success Rate: 99.8% (998/1000 scenes)
+  • Mean Reward: 0.9980
+  • Median Reward: 1.0000
+  • Range: [0.0000, 1.0000]
+  • Std Dev: 0.0447
+  • Percentiles:
+      - P1: 1.0000
+      - P5: 1.0000
+      - P25: 1.0000
+      - P75: 1.0000
+      - P95: 1.0000
+      - P99: 1.0000
+
+DISTRIBUTION CHARACTERISTICS:
+
+  • Skewness: -22.29
+  • Kurtosis: 495.00
+    • Min Rate: 0.2%
+    • Near Min Rate: 0.2%
+    • Max Rate: 99.8%
+    • Near Max Rate: 99.8%
+
+============================================================
+
+
+--- Stats from R8_minimal_furniture_density_llm_summary_baseline.txt ---
+
+=== REWARD ANALYSIS: R8_minimal_furniture_density ===
+
+PERFORMANCE METRICS:
+  • Success Rate: 98.8% (988/1000 scenes)
+  • Mean Reward: 0.9979
+  • Median Reward: 1.0000
+  • Range: [0.7500, 1.0000]
+  • Std Dev: 0.0204
+  • Percentiles:
+      - P1: 0.8750
+      - P5: 1.0000
+      - P25: 1.0000
+      - P75: 1.0000
+      - P95: 1.0000
+      - P99: 1.0000
+
+DISTRIBUTION CHARACTERISTICS:
+
+  • Skewness: -10.45
+  • Kurtosis: 114.52
+    • Min Rate: 0.5%
+    • Near Min Rate: 0.5%
+    • Max Rate: 98.8%
+    • Near Max Rate: 98.8%
+
+============================================================
+
+
+--- Stats from R5_sufficient_play_area_llm_summary_baseline.txt ---
+
+=== REWARD ANALYSIS: R5_sufficient_play_area ===
+
+PERFORMANCE METRICS:
+  • Success Rate: 85.4% (854/1000 scenes)
+  • Mean Reward: 0.9500
+  • Median Reward: 1.0000
+  • Range: [0.0000, 1.0000]
+  • Std Dev: 0.1381
+  • Percentiles:
+      - P1: 0.3808
+      - P5: 0.6703
+      - P25: 1.0000
+      - P75: 1.0000
+      - P95: 1.0000
+      - P99: 1.0000
+
+DISTRIBUTION CHARACTERISTICS:
+
+  • Skewness: -3.47
+  • Kurtosis: 13.25
+    • Min Rate: 0.3%
+    • Near Min Rate: 0.3%
+    • Max Rate: 80.8%
+    • Near Max Rate: 83.5%
+
+============================================================
+
+
+--- Stats from R3_low_furniture_height_llm_summary_baseline.txt ---
+
+=== REWARD ANALYSIS: R3_low_furniture_height ===
+
+PERFORMANCE METRICS:
+  • Success Rate: 100.0% (1000/1000 scenes)
+  • Mean Reward: 1.0000
+  • Median Reward: 1.0000
+  • Range: [1.0000, 1.0000]
+  • Std Dev: 0.0000
+  • Percentiles:
+      - P1: 1.0000
+      - P5: 1.0000
+      - P25: 1.0000
+      - P75: 1.0000
+      - P95: 1.0000
+      - P99: 1.0000
+
+DISTRIBUTION CHARACTERISTICS:
+
+  • Skewness: nan
+  • Kurtosis: nan
+    • Min Rate: 100.0%
+    • Near Min Rate: 100.0%
+    • Max Rate: 100.0%
+    • Near Max Rate: 100.0%
+
+============================================================
+
+
+--- Stats from R7_safe_nightstand_height_llm_summary_dataset.txt ---
+
+=== REWARD ANALYSIS: R7_safe_nightstand_height ===
+
+PERFORMANCE METRICS:
+  • Success Rate: 0.0% (0/4041 scenes)
+  • Mean Reward: 0.2973
+  • Median Reward: 0.3333
+  • Range: [0.0000, 0.8333]
+  • Std Dev: 0.2141
+  • Percentiles:
+      - P1: 0.0000
+      - P5: 0.0000
+      - P25: 0.1429
+      - P75: 0.5000
+      - P95: 0.6667
+      - P99: 0.7500
+
+DISTRIBUTION CHARACTERISTICS:
+
+  • Skewness: 0.06
+  • Kurtosis: -0.97
+    • Min Rate: 23.4%
+    • Near Min Rate: 23.4%
+    • Max Rate: 0.0%
+    • Near Max Rate: 0.3%
+
+============================================================
+
+
+--- Stats from R1_kids_bed_present_llm_summary_dataset.txt ---
+
+=== REWARD ANALYSIS: R1_kids_bed_present ===
+
+PERFORMANCE METRICS:
+  • Success Rate: 0.0% (0/4041 scenes)
+  • Mean Reward: 0.0000
+  • Median Reward: 0.0000
+  • Range: [0.0000, 0.0000]
+  • Std Dev: 0.0000
+  • Percentiles:
+      - P1: 0.0000
+      - P5: 0.0000
+      - P25: 0.0000
+      - P75: 0.0000
+      - P95: 0.0000
+      - P99: 0.0000
+
+DISTRIBUTION CHARACTERISTICS:
+
+  • Skewness: nan
+  • Kurtosis: nan
+    • Min Rate: 100.0%
+    • Near Min Rate: 100.0%
+    • Max Rate: 100.0%
+    • Near Max Rate: 100.0%
+
+============================================================
+
+
+--- Stats from R5_sufficient_play_area_llm_summary_dataset.txt ---
+
+=== REWARD ANALYSIS: R5_sufficient_play_area ===
+
+PERFORMANCE METRICS:
+  • Success Rate: 71.0% (2869/4041 scenes)
+  • Mean Reward: 0.8771
+  • Median Reward: 1.0000
+  • Range: [0.0000, 1.0000]
+  • Std Dev: 0.2291
+  • Percentiles:
+      - P1: 0.0000
+      - P5: 0.3128
+      - P25: 0.8492
+      - P75: 1.0000
+      - P95: 1.0000
+      - P99: 1.0000
+
+DISTRIBUTION CHARACTERISTICS:
+
+  • Skewness: -2.18
+  • Kurtosis: 4.19
+    • Min Rate: 1.6%
+    • Near Min Rate: 1.8%
+    • Max Rate: 61.3%
+    • Near Max Rate: 66.4%
+
+============================================================
+
+
+--- Stats from R2_no_adult_beds_llm_summary_baseline.txt ---
+
+=== REWARD ANALYSIS: R2_no_adult_beds ===
+
+PERFORMANCE METRICS:
+  • Success Rate: 99.8% (998/1000 scenes)
+  • Mean Reward: 0.9980
+  • Median Reward: 1.0000
+  • Range: [0.0000, 1.0000]
+  • Std Dev: 0.0447
+  • Percentiles:
+      - P1: 1.0000
+      - P5: 1.0000
+      - P25: 1.0000
+      - P75: 1.0000
+      - P95: 1.0000
+      - P99: 1.0000
+
+DISTRIBUTION CHARACTERISTICS:
+
+  • Skewness: -22.29
+  • Kurtosis: 495.00
+    • Min Rate: 0.2%
+    • Near Min Rate: 0.2%
+    • Max Rate: 99.8%
+    • Near Max Rate: 99.8%
+
+============================================================
+
+
+--- Stats from R6_no_hazardous_furniture_llm_summary_dataset.txt ---
+
+=== REWARD ANALYSIS: R6_no_hazardous_furniture ===
+
+PERFORMANCE METRICS:
+  • Success Rate: 100.0% (4039/4041 scenes)
+  • Mean Reward: 0.9995
+  • Median Reward: 1.0000
+  • Range: [0.0000, 1.0000]
+  • Std Dev: 0.0222
+  • Percentiles:
+      - P1: 1.0000
+      - P5: 1.0000
+      - P25: 1.0000
+      - P75: 1.0000
+      - P95: 1.0000
+      - P99: 1.0000
+
+DISTRIBUTION CHARACTERISTICS:
+
+  • Skewness: -44.92
+  • Kurtosis: 2015.50
+    • Min Rate: 0.0%
+    • Near Min Rate: 0.0%
+    • Max Rate: 100.0%
+    • Near Max Rate: 100.0%
+
+============================================================
+
+
+--- Stats from R4_children_storage_preference_llm_summary_dataset.txt ---
+
+=== REWARD ANALYSIS: R4_children_storage_preference ===
+
+PERFORMANCE METRICS:
+  • Success Rate: 99.6% (4024/4041 scenes)
+  • Mean Reward: 0.9958
+  • Median Reward: 1.0000
+  • Range: [0.0000, 1.0000]
+  • Std Dev: 0.0647
+  • Percentiles:
+      - P1: 1.0000
+      - P5: 1.0000
+      - P25: 1.0000
+      - P75: 1.0000
+      - P95: 1.0000
+      - P99: 1.0000
+
+DISTRIBUTION CHARACTERISTICS:
+
+  • Skewness: -15.32
+  • Kurtosis: 232.71
+    • Min Rate: 0.4%
+    • Near Min Rate: 0.4%
+    • Max Rate: 99.6%
+    • Near Max Rate: 99.6%
+
+============================================================
+
+
+--- Stats from R2_no_adult_beds_llm_summary_dataset.txt ---
+
+=== REWARD ANALYSIS: R2_no_adult_beds ===
+
+PERFORMANCE METRICS:
+  • Success Rate: 100.0% (4041/4041 scenes)
+  • Mean Reward: 1.0000
+  • Median Reward: 1.0000
+  • Range: [1.0000, 1.0000]
+  • Std Dev: 0.0000
+  • Percentiles:
+      - P1: 1.0000
+      - P5: 1.0000
+      - P25: 1.0000
+      - P75: 1.0000
+      - P95: 1.0000
+      - P99: 1.0000
+
+DISTRIBUTION CHARACTERISTICS:
+
+  • Skewness: nan
+  • Kurtosis: nan
+    • Min Rate: 100.0%
+    • Near Min Rate: 100.0%
+    • Max Rate: 100.0%
+    • Near Max Rate: 100.0%
+
+============================================================
+
+
+--- Stats from R1_kids_bed_present_llm_summary_baseline.txt ---
+
+=== REWARD ANALYSIS: R1_kids_bed_present ===
+
+PERFORMANCE METRICS:
+  • Success Rate: 0.0% (0/1000 scenes)
+  • Mean Reward: 0.0000
+  • Median Reward: 0.0000
+  • Range: [0.0000, 0.0000]
+  • Std Dev: 0.0000
+  • Percentiles:
+      - P1: 0.0000
+      - P5: 0.0000
+      - P25: 0.0000
+      - P75: 0.0000
+      - P95: 0.0000
+      - P99: 0.0000
+
+DISTRIBUTION CHARACTERISTICS:
+
+  • Skewness: nan
+  • Kurtosis: nan
+    • Min Rate: 100.0%
+    • Near Min Rate: 100.0%
+    • Max Rate: 100.0%
+    • Near Max Rate: 100.0%
+
+============================================================
+
+
+--- Stats from R8_minimal_furniture_density_llm_summary_dataset.txt ---
+
+=== REWARD ANALYSIS: R8_minimal_furniture_density ===
+
+PERFORMANCE METRICS:
+  • Success Rate: 98.1% (3964/4041 scenes)
+  • Mean Reward: 0.9962
+  • Median Reward: 1.0000
+  • Range: [0.5000, 1.0000]
+  • Std Dev: 0.0315
+  • Percentiles:
+      - P1: 0.8750
+      - P5: 1.0000
+      - P25: 1.0000
+      - P75: 1.0000
+      - P95: 1.0000
+      - P99: 1.0000
+
+DISTRIBUTION CHARACTERISTICS:
+
+  • Skewness: -10.20
+  • Kurtosis: 119.50
+    • Min Rate: 0.1%
+    • Near Min Rate: 0.1%
+    • Max Rate: 98.1%
+    • Near Max Rate: 98.1%
+
+============================================================
+
+    

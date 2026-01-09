@@ -1,0 +1,27 @@
+
+=== REWARD ANALYSIS: R7_minimal_living_room_furniture ===
+
+PERFORMANCE METRICS:
+  • Success Rate: 63.8% (638/1000 scenes)
+  • Mean Reward: -0.9060
+  • Median Reward: 0.0000
+  • Range: [-6.0000, 0.0000]
+  • Std Dev: 1.3354
+  • Percentiles:
+      - P1: -4.0000
+      - P5: -4.0000
+      - P25: -2.0000
+      - P75: 0.0000
+      - P95: 0.0000
+      - P99: 0.0000
+
+DISTRIBUTION CHARACTERISTICS:
+
+  • Skewness: -1.33
+  • Kurtosis: 1.12
+    • Min Rate: 0.8%
+    • Near Min Rate: 0.8%
+    • Max Rate: 63.8%
+    • Near Max Rate: 63.8%
+
+============================================================

@@ -1,0 +1,11 @@
+## prompt design
+- [ ] clear definition with shape and datatype of  parsed scenes and kwargs
+- [ ] ask LLM to understand the intentions of in user expressed as vague instruction -> ask LLM to consider constraints that need to be fulfilled to satisfy instruction -> ask LLM to clean constraints and keep only the most important ones -> for each selected constraints ask LLM to write reward functions that can be maximized using RL ->llm agent runs tests to test each reward function -> Get statistics of reward functions' output using pretrained baseline model and N num of scenes -> If raw rewards are not good signals for RL agent, LLM redesigns the reward functions -> Finetune using RL.
+- [ ] basic coding principles
+	```python
+	distance = pos1 - pos2 - (sum of sizes of objects in the facing direction)
+	idx_from_class_labels = ...
+	```
+
+- [ ] one good example of entire process above in prompt
+- [ ] let claude make visualizations and think on the reward function dynamically generated

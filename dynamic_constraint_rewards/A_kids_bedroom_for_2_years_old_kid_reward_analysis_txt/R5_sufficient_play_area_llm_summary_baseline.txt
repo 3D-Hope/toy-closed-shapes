@@ -1,0 +1,27 @@
+
+=== REWARD ANALYSIS: R5_sufficient_play_area ===
+
+PERFORMANCE METRICS:
+  • Success Rate: 85.4% (854/1000 scenes)
+  • Mean Reward: 0.9500
+  • Median Reward: 1.0000
+  • Range: [0.0000, 1.0000]
+  • Std Dev: 0.1381
+  • Percentiles:
+      - P1: 0.3808
+      - P5: 0.6703
+      - P25: 1.0000
+      - P75: 1.0000
+      - P95: 1.0000
+      - P99: 1.0000
+
+DISTRIBUTION CHARACTERISTICS:
+
+  • Skewness: -3.47
+  • Kurtosis: 13.25
+    • Min Rate: 0.3%
+    • Near Min Rate: 0.3%
+    • Max Rate: 80.8%
+    • Near Max Rate: 83.5%
+
+============================================================

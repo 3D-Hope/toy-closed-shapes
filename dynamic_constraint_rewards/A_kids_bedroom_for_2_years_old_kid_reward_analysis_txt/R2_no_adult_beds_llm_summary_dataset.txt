@@ -1,0 +1,27 @@
+
+=== REWARD ANALYSIS: R2_no_adult_beds ===
+
+PERFORMANCE METRICS:
+  • Success Rate: 100.0% (4041/4041 scenes)
+  • Mean Reward: 1.0000
+  • Median Reward: 1.0000
+  • Range: [1.0000, 1.0000]
+  • Std Dev: 0.0000
+  • Percentiles:
+      - P1: 1.0000
+      - P5: 1.0000
+      - P25: 1.0000
+      - P75: 1.0000
+      - P95: 1.0000
+      - P99: 1.0000
+
+DISTRIBUTION CHARACTERISTICS:
+
+  • Skewness: nan
+  • Kurtosis: nan
+    • Min Rate: 100.0%
+    • Near Min Rate: 100.0%
+    • Max Rate: 100.0%
+    • Near Max Rate: 100.0%
+
+============================================================

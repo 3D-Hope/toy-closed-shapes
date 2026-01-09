@@ -1,0 +1,10 @@
+{
+    "importance_weights": {
+        "bed_headboard_faces_east_soft": 2.5,
+        "bed_exists_in_scene": 1.5,
+        "bed_placement_stability": 1.0,
+        "non_penetration": 2.0,
+        "not_out_of_bound": 2.0,
+        "accessibility": 1.5
+    }
+}

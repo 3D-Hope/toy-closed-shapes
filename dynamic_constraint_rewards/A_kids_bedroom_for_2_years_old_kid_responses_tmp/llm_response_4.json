@@ -1,0 +1,9 @@
+{
+    "importance_weights": {
+        "kids_bed_required": 3.0,
+        "strict_nightstand_height_limit": 2.0,
+        "non_penetration": 2.5,
+        "not_out_of_bound": 2.5,
+        "accessibility": 1.5
+    }
+}

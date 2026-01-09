@@ -1,0 +1,27 @@
+
+=== REWARD ANALYSIS: R3_table_exists_in_scene ===
+
+PERFORMANCE METRICS:
+  • Success Rate: 23.6% (953/4041 scenes)
+  • Mean Reward: -0.5283
+  • Median Reward: -1.0000
+  • Range: [-1.0000, 1.0000]
+  • Std Dev: 0.8490
+  • Percentiles:
+      - P1: -1.0000
+      - P5: -1.0000
+      - P25: -1.0000
+      - P75: -1.0000
+      - P95: 1.0000
+      - P99: 1.0000
+
+DISTRIBUTION CHARACTERISTICS:
+
+  • Skewness: 1.24
+  • Kurtosis: -0.45
+    • Min Rate: 76.4%
+    • Near Min Rate: 76.4%
+    • Max Rate: 23.6%
+    • Near Max Rate: 23.6%
+
+============================================================

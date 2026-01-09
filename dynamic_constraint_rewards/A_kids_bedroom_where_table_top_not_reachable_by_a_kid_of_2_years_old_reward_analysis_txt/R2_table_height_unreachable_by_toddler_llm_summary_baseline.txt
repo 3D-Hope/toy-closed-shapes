@@ -1,0 +1,27 @@
+
+=== REWARD ANALYSIS: R2_table_height_unreachable_by_toddler ===
+
+PERFORMANCE METRICS:
+  • Success Rate: 4.6% (46/1000 scenes)
+  • Mean Reward: -0.8498
+  • Median Reward: -1.0000
+  • Range: [-1.0000, 1.0000]
+  • Std Dev: 0.4566
+  • Percentiles:
+      - P1: -1.0000
+      - P5: -1.0000
+      - P25: -1.0000
+      - P75: -1.0000
+      - P95: 0.0768
+      - P99: 1.0000
+
+DISTRIBUTION CHARACTERISTICS:
+
+  • Skewness: 3.34
+  • Kurtosis: 10.06
+    • Min Rate: 80.6%
+    • Near Min Rate: 83.0%
+    • Max Rate: 4.6%
+    • Near Max Rate: 4.6%
+
+============================================================

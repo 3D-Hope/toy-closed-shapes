@@ -1,0 +1,27 @@
+
+=== REWARD ANALYSIS: R8_minimal_furniture_density ===
+
+PERFORMANCE METRICS:
+  • Success Rate: 98.8% (988/1000 scenes)
+  • Mean Reward: 0.9979
+  • Median Reward: 1.0000
+  • Range: [0.7500, 1.0000]
+  • Std Dev: 0.0204
+  • Percentiles:
+      - P1: 0.8750
+      - P5: 1.0000
+      - P25: 1.0000
+      - P75: 1.0000
+      - P95: 1.0000
+      - P99: 1.0000
+
+DISTRIBUTION CHARACTERISTICS:
+
+  • Skewness: -10.45
+  • Kurtosis: 114.52
+    • Min Rate: 0.5%
+    • Near Min Rate: 0.5%
+    • Max Rate: 98.8%
+    • Near Max Rate: 98.8%
+
+============================================================

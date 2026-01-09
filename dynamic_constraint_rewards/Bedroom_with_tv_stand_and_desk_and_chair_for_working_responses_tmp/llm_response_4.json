@@ -1,0 +1,8 @@
+{
+    "importance_weights": {
+        "tv_stand_presence_reward": 10.0,
+        "non_penetration": 2.0,
+        "not_out_of_bound": 2.0,
+        "accessibility": 1.5
+    }
+}

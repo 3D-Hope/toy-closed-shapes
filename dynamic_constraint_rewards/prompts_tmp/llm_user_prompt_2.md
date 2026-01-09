@@ -1,0 +1,4 @@
+
+    User Prompt: A bedroom with ceiling lamp above each corner of the bed.
+    Constraints to be satisfied: {'constraints': [{'id': 'C1', 'name': 'ceiling_lamp_presence', 'description': 'Verifies that at least one ceiling lamp exists in the scene'}, {'id': 'C2', 'name': 'bed_presence', 'description': 'Verifies that at least one bed (double_bed, single_bed, or kids_bed) exists in the scene'}, {'id': 'C3', 'name': 'ceiling_lamps_above_bed_corners', 'description': 'Checks that ceiling lamps are positioned directly above the four corners of the bed in the XZ plane, with appropriate vertical positioning near the ceiling height'}, {'id': 'C4', 'name': 'four_ceiling_lamps_required', 'description': 'Verifies that exactly four ceiling lamps are present (one for each corner of the bed)'}]}
+    

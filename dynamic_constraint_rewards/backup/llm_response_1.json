@@ -1,0 +1,44 @@
+{
+    "constraints": [
+        {
+            "id": "C1",
+            "name": "minimum_seating_capacity",
+            "description": "Ensure the scene contains seating for at least 10 students. Count all seating furniture (dining_chair, stool, armchair, lounge_chair, chinese_chair) and verify total capacity ≥ 10."
+        },
+        {
+            "id": "C2",
+            "name": "has_teaching_workspace",
+            "description": "Verify the scene contains at least one desk or console_table that can serve as a teacher's workspace/teaching station."
+        },
+        {
+            "id": "C3",
+            "name": "organized_seating_arrangement",
+            "description": "Check that seating furniture (chairs/stools) are arranged in an organized pattern facing a common direction, suggesting a classroom layout rather than scattered placement. Measure angular alignment and spatial clustering of seating."
+        },
+        {
+            "id": "C4",
+            "name": "sufficient_student_workspace",
+            "description": "Ensure there are adequate work surfaces for students. Count dining_table, desk, or console_table instances and verify reasonable proximity to seating (within 1.5m of chairs)."
+        },
+        {
+            "id": "C5",
+            "name": "chair_to_table_pairing",
+            "description": "Verify that each seating position (chair/stool) has access to a nearby table surface within functional distance (≤ 1.0m), ensuring students have workspace at their seats."
+        },
+        {
+            "id": "C6",
+            "name": "adequate_lighting",
+            "description": "Check for presence of sufficient lighting fixtures (pendant_lamp, ceiling_lamp) appropriate for a learning environment. Minimum 1-2 light sources for a 10-student classroom."
+        },
+        {
+            "id": "C7",
+            "name": "minimal_living_room_furniture",
+            "description": "Penalize presence of typical living room furniture that doesn't belong in a classroom (sofas, coffee_tables, tv_stands, lounge_chairs). Educational spaces should not contain leisure furniture."
+        },
+        {
+            "id": "C8",
+            "name": "storage_or_display_availability",
+            "description": "Verify presence of storage/display furniture (bookshelf, cabinet, shelf) for classroom materials and student belongings. At least one storage unit should be present."
+        }
+    ]
+}

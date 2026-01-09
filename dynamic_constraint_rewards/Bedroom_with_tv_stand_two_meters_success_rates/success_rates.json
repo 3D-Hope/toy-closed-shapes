@@ -1,0 +1,27 @@
+{
+  "thresholds": {
+    "combined_reward": 10.0
+  },
+  "results": {
+    "combined_reward": {
+      "reward_name": "combined_reward",
+      "threshold": 10.0,
+      "num_scenes": 1000,
+      "num_success": 0,
+      "success_rate": 0.0,
+      "mean": 0.3880000114440918,
+      "median": 0.0,
+      "min": -2.0,
+      "max": 2.0,
+      "stddev": 0.9173091053962708,
+      "percentiles": {
+        "p1": -2.0,
+        "p5": 0.0,
+        "p25": 0.0,
+        "p75": 0.0,
+        "p95": 2.0,
+        "p99": 2.0
+      }
+    }
+  }
+}

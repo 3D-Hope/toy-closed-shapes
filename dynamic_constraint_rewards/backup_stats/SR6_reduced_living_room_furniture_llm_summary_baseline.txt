@@ -1,0 +1,27 @@
+
+=== REWARD ANALYSIS: SR6_reduced_living_room_furniture ===
+
+PERFORMANCE METRICS:
+  • Success Rate: 64.9% (649/1000 scenes)
+  • Mean Reward: -0.4330
+  • Median Reward: 0.0000
+  • Range: [-3.0000, 0.0000]
+  • Std Dev: 0.6523
+  • Percentiles:
+      - P1: -2.0000
+      - P5: -2.0000
+      - P25: -1.0000
+      - P75: 0.0000
+      - P95: 0.0000
+      - P99: 0.0000
+
+DISTRIBUTION CHARACTERISTICS:
+
+  • Skewness: -1.39
+  • Kurtosis: 1.40
+    • Min Rate: 0.8%
+    • Near Min Rate: 0.8%
+    • Max Rate: 64.9%
+    • Near Max Rate: 64.9%
+
+============================================================

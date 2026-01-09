@@ -1,0 +1,27 @@
+
+=== REWARD ANALYSIS: SR2_has_teaching_workspace ===
+
+PERFORMANCE METRICS:
+  • Success Rate: 0.0% (0/813 scenes)
+  • Mean Reward: -0.6335
+  • Median Reward: -1.0000
+  • Range: [-1.0000, 0.0000]
+  • Std Dev: 0.4819
+  • Percentiles:
+      - P1: -1.0000
+      - P5: -1.0000
+      - P25: -1.0000
+      - P75: 0.0000
+      - P95: 0.0000
+      - P99: 0.0000
+
+DISTRIBUTION CHARACTERISTICS:
+
+  • Skewness: 0.55
+  • Kurtosis: -1.69
+    • Min Rate: 63.3%
+    • Near Min Rate: 63.3%
+    • Max Rate: 36.7%
+    • Near Max Rate: 36.7%
+
+============================================================

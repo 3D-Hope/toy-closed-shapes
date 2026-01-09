@@ -1,0 +1,27 @@
+
+=== REWARD ANALYSIS: SR7_storage_availability ===
+
+PERFORMANCE METRICS:
+  • Success Rate: 0.0% (0/813 scenes)
+  • Mean Reward: -0.6248
+  • Median Reward: -1.0000
+  • Range: [-1.0000, 0.0000]
+  • Std Dev: 0.4842
+  • Percentiles:
+      - P1: -1.0000
+      - P5: -1.0000
+      - P25: -1.0000
+      - P75: 0.0000
+      - P95: 0.0000
+      - P99: 0.0000
+
+DISTRIBUTION CHARACTERISTICS:
+
+  • Skewness: 0.52
+  • Kurtosis: -1.73
+    • Min Rate: 62.5%
+    • Near Min Rate: 62.5%
+    • Max Rate: 37.5%
+    • Near Max Rate: 37.5%
+
+============================================================

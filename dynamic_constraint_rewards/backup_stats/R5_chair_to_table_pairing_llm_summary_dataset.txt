@@ -1,0 +1,27 @@
+
+=== REWARD ANALYSIS: R5_chair_to_table_pairing ===
+
+PERFORMANCE METRICS:
+  • Success Rate: 0.0% (0/4041 scenes)
+  • Mean Reward: -0.1287
+  • Median Reward: 0.0000
+  • Range: [-4.0000, 0.0000]
+  • Std Dev: 0.4189
+  • Percentiles:
+      - P1: -2.0000
+      - P5: -1.0000
+      - P25: 0.0000
+      - P75: 0.0000
+      - P95: 0.0000
+      - P99: 0.0000
+
+DISTRIBUTION CHARACTERISTICS:
+
+  • Skewness: -3.95
+  • Kurtosis: 19.02
+    • Min Rate: 0.1%
+    • Near Min Rate: 0.1%
+    • Max Rate: 89.7%
+    • Near Max Rate: 89.7%
+
+============================================================

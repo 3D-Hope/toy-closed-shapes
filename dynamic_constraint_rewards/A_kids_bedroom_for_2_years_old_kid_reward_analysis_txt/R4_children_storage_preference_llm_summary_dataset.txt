@@ -1,0 +1,27 @@
+
+=== REWARD ANALYSIS: R4_children_storage_preference ===
+
+PERFORMANCE METRICS:
+  • Success Rate: 99.6% (4024/4041 scenes)
+  • Mean Reward: 0.9958
+  • Median Reward: 1.0000
+  • Range: [0.0000, 1.0000]
+  • Std Dev: 0.0647
+  • Percentiles:
+      - P1: 1.0000
+      - P5: 1.0000
+      - P25: 1.0000
+      - P75: 1.0000
+      - P95: 1.0000
+      - P99: 1.0000
+
+DISTRIBUTION CHARACTERISTICS:
+
+  • Skewness: -15.32
+  • Kurtosis: 232.71
+    • Min Rate: 0.4%
+    • Near Min Rate: 0.4%
+    • Max Rate: 99.6%
+    • Near Max Rate: 99.6%
+
+============================================================

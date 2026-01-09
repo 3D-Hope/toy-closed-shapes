@@ -1,0 +1,27 @@
+
+=== REWARD ANALYSIS: R4_sufficient_student_workspace ===
+
+PERFORMANCE METRICS:
+  • Success Rate: 0.0% (0/1000 scenes)
+  • Mean Reward: -5.6530
+  • Median Reward: -6.0000
+  • Range: [-8.0000, -1.0000]
+  • Std Dev: 0.9574
+  • Percentiles:
+      - P1: -8.0000
+      - P5: -6.0000
+      - P25: -6.0000
+      - P75: -6.0000
+      - P95: -4.0000
+      - P99: -2.0000
+
+DISTRIBUTION CHARACTERISTICS:
+
+  • Skewness: 1.33
+  • Kurtosis: 3.02
+    • Min Rate: 2.7%
+    • Near Min Rate: 2.7%
+    • Max Rate: 0.1%
+    • Near Max Rate: 0.1%
+
+============================================================

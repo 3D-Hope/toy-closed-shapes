@@ -1,0 +1,27 @@
+
+=== REWARD ANALYSIS: R6_no_hazardous_furniture ===
+
+PERFORMANCE METRICS:
+  • Success Rate: 99.8% (998/1000 scenes)
+  • Mean Reward: 0.9980
+  • Median Reward: 1.0000
+  • Range: [0.0000, 1.0000]
+  • Std Dev: 0.0447
+  • Percentiles:
+      - P1: 1.0000
+      - P5: 1.0000
+      - P25: 1.0000
+      - P75: 1.0000
+      - P95: 1.0000
+      - P99: 1.0000
+
+DISTRIBUTION CHARACTERISTICS:
+
+  • Skewness: -22.29
+  • Kurtosis: 495.00
+    • Min Rate: 0.2%
+    • Near Min Rate: 0.2%
+    • Max Rate: 99.8%
+    • Near Max Rate: 99.8%
+
+============================================================

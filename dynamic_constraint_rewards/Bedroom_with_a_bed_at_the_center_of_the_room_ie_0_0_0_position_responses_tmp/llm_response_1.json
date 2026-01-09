@@ -1,0 +1,14 @@
+{
+  "constraints": [
+    {
+      "id": "C1",
+      "name": "bed_at_room_center",
+      "description": "Verifies that a bed (double_bed, single_bed, or kids_bed) is positioned at the center of the room, with its XZ coordinates at approximately (0, 0). The Y coordinate should be at the expected floor level (object_height/2). Checks that the distance from the bed's position to (0, 0, 0) is within a small tolerance threshold (e.g., < 0.3 meters)."
+    },
+    {
+      "id": "C2",
+      "name": "bed_exists_in_scene",
+      "description": "Verifies that at least one bed object (double_bed, single_bed, or kids_bed) exists in the scene and is not an empty slot (is_empty == False)."
+    }
+  ]
+}

@@ -1,0 +1,34 @@
+source .venv/bin/activate
+PYTHONPATH=. python -u main.py +name=continuous_midiffusion_baseline_livingroom_no_objfeats_hope \
+    dataset=custom_scene \
+    dataset.processed_scene_data_path=data/metadatas/custom_scene_metadata.json \
+    dataset.data.path_to_processed_data=/media/ajad/YourBook/AshokSaugatResearchBackup/AshokSaugatResearch/ThreedFront \
+    dataset._name=custom_scene \
+    dataset.max_num_objects_per_scene=21 \
+    dataset.model_path_vec_len=25 \
+    algorithm=scene_diffuser_midiffusion \
+    algorithm.trainer=ddpm \
+    experiment.find_unused_parameters=True \
+    algorithm.classifier_free_guidance.use=False \
+    algorithm.ema.use=True \
+    algorithm.classifier_free_guidance.use_floor=True \
+    algorithm.classifier_free_guidance.weight=0 \
+    algorithm.custom.loss=true \
+    experiment.training.lr=1e-6 \
+    experiment.lr_scheduler.num_warmup_steps=250 \
+    algorithm.validation.num_samples_to_render=0 \
+    algorithm.validation.num_samples_to_visualize=0 \
+    algorithm.validation.num_directives_to_generate=0 \
+    algorithm.test.num_samples_to_render=0 \
+    algorithm.test.num_samples_to_visualize=0 \
+    algorithm.test.num_directives_to_generate=0 \
+    algorithm.validation.num_samples_to_compute_physical_feasibility_metrics_for=0 \
+    dataset.data.dataset_directory=livingroom \
+    dataset.data.room_type=livingroom \
+    algorithm.custom.num_classes=25 \
+    algorithm.custom.obj_vec_len=33 \
+    algorithm.custom.obj_diff_vec_len=33 \
+    dataset.data.encoding_type=cached_diffusion_cosin_angle_wocm \
+    dataset.data.annotation_file=livingroom_threed_front_splits.csv \
+    experiment.training.checkpointing.every_n_train_steps=1000 \
+    algorithm.custom.use_objfeats=False

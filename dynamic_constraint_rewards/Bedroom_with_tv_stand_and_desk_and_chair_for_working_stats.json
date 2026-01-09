@@ -1,0 +1,58 @@
+{
+  "non_penetration": {
+    "min": -2.9275083541870117,
+    "max": 1.0,
+    "mean": 0.09111419320106506,
+    "median": -0.11524999141693115,
+    "stddev": 0.6284422874450684,
+    "percentile_1": -1.2494399797916411,
+    "percentile_5": -0.6735192716121673,
+    "percentile_25": -0.268898643553257,
+    "percentile_75": 1.0,
+    "percentile_95": 1.0,
+    "percentile_99": 1.0,
+    "num_scenes": 1000
+  },
+  "not_out_of_bound": {
+    "min": -2.169440269470215,
+    "max": 1.0,
+    "mean": -0.32206472754478455,
+    "median": -0.2604050040245056,
+    "stddev": 0.6328507661819458,
+    "percentile_1": -1.5301458656787872,
+    "percentile_5": -1.2951204895973205,
+    "percentile_25": -0.7727360874414444,
+    "percentile_75": -0.07268468290567398,
+    "percentile_95": 1.0,
+    "percentile_99": 1.0,
+    "num_scenes": 1000
+  },
+  "accessibility": {
+    "min": 0.09144143760204315,
+    "max": 1.1758477687835693,
+    "mean": 0.9383817911148071,
+    "median": 1.0019725561141968,
+    "stddev": 0.16237561404705048,
+    "percentile_1": 0.33642649054527285,
+    "percentile_5": 0.5538727134466171,
+    "percentile_25": 0.9117116630077362,
+    "percentile_75": 1.0266811847686768,
+    "percentile_95": 1.0583621323108672,
+    "percentile_99": 1.0974730408191682,
+    "num_scenes": 1000
+  },
+  "SR1_tv_stand_presence_reward": {
+    "min": 0.0,
+    "max": 1.0,
+    "mean": 0.15000000596046448,
+    "median": 0.0,
+    "stddev": 0.3570714294910431,
+    "percentile_1": 0.0,
+    "percentile_5": 0.0,
+    "percentile_25": 0.0,
+    "percentile_75": 0.0,
+    "percentile_95": 1.0,
+    "percentile_99": 1.0,
+    "num_scenes": 1000
+  }
+}

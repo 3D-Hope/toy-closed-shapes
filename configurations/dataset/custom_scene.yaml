@@ -1,0 +1,111 @@
+defaults:
+  - scene
+
+_name: custom_scene
+processed_scene_data_path: /media/ajad/YourBook/AshokSaugatResearchBackup/AshokSaugatResearch/steerable-scene-generation/MiData  # We don't need this
+model_path_vec_len: 22
+max_num_objects_per_scene: 12
+translation_vec_len: 3
+rotation_parametrization: procrustes
+
+data:
+    path_to_processed_data: "/media/ajad/YourBook/AshokSaugatResearchBackup/AshokSaugatResearch/steerable-scene-generation/MiData"
+    path_to_dataset_files: "/media/ajad/YourBook/AshokSaugatResearchBackup/AshokSaugatResearch/ThreedFront/dataset_files"
+    dataset_directory: "bedroom" # need to change to livingroom
+    dataset_type: "cached_threedfront"
+    encoding_type: "cached_diffusion_cosin_angle_wocm"
+
+    annotation_file: "bedroom_threed_front_splits_original.csv" # need to change to livingroom_threed_front_splits.csv
+    augmentations: ["fixed_rotations"]
+    train_stats: "dataset_stats.txt"
+    room_layout_size: "64,64"
+    room_type: "bedroom" # need to change to livingroom
+    
+
+network:
+    type: "diffusion_scene_layout_mixed"
+
+    # encoding dim
+    sample_num_points: 12 # max_length 
+    max_cuboids: 19
+    angle_dim: 2 
+
+    # room mask condition
+    room_mask_condition: true
+    room_latent_dim: 64
+
+    # position condition
+    position_condition: false
+    position_emb_dim: 0
+
+    # diffusion config
+    time_num: 1000
+    # time_num: 2
+    diffusion_semantic_kwargs:
+        att_1: 0.99999 
+        att_T: 0.000009
+        ctt_1: 0.000009
+        ctt_T: 0.99999
+        model_output_type: 'x0'
+        mask_weight: 1
+        auxiliary_loss_weight: 0.0005
+        adaptive_auxiliary_loss: True
+    diffusion_geometric_kwargs:
+       _type: 'fc'
+
+feature_extractor:
+    name: "pointnet_simple"
+    feat_units: [4, 64, 64, 512, 64]
+
+training:
+    splits: ["train", "val"]
+    # splits: ["overfit"]
+    epochs: 50000
+    batch_size: 64
+    n_processes: 1
+    # batch_size: 512
+    save_frequency: 100
+    max_grad_norm: 10
+    # optimizer
+    optimizer: Adam
+    weight_decay: 0.0
+    # schedule
+    schedule: 'step'
+    lr: 0.0002 #these should no be used. we only use values rom experiment config
+    lr_step: 10000
+    lr_decay: 0.5
+
+validation:
+    splits: ["test"]
+    # splits: ["overfit"]
+    frequency: 100
+    batch_size: 64
+
+logger:
+    type: "wandb"
+    project: "MiDiffusion"
+
+
+#---
+    schedule_type: 'linear'
+    beta_start: 0.0001
+    beta_end: 0.02
+    loss_type: 'mse'
+    model_mean_type: 'eps'
+    model_var_type: 'fixedsmall'
+
+    # denoising net
+    net_type: "transformer"
+    net_kwargs:
+        seperate_all: True
+        n_layer: 8
+        n_embd: 512
+        n_head: 4
+        dim_feedforward: 2048
+        dropout: 0.1    
+        activate: 'GELU'
+        timestep_type: 'adalayernorm_abs'
+        mlp_ratio: 4
+
+sdf_cache_dir: ./sdf_cache/
+accessibility_cache_dir: ./accessibility_cache/

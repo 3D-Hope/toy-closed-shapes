@@ -1,0 +1,7 @@
+{
+    "importance_weights": {
+        "non_penetration": 1.0,
+        "not_out_of_bound": 1.0,
+        "accessibility": 1.0
+    }
+}

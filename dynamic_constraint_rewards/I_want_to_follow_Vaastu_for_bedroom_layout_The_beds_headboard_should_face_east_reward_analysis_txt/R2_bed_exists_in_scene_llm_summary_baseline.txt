@@ -1,0 +1,27 @@
+
+=== REWARD ANALYSIS: R2_bed_exists_in_scene ===
+
+PERFORMANCE METRICS:
+  • Success Rate: 99.7% (997/1000 scenes)
+  • Mean Reward: 0.9940
+  • Median Reward: 1.0000
+  • Range: [-1.0000, 1.0000]
+  • Std Dev: 0.1094
+  • Percentiles:
+      - P1: 1.0000
+      - P5: 1.0000
+      - P25: 1.0000
+      - P75: 1.0000
+      - P95: 1.0000
+      - P99: 1.0000
+
+DISTRIBUTION CHARACTERISTICS:
+
+  • Skewness: -18.18
+  • Kurtosis: 328.34
+    • Min Rate: 0.3%
+    • Near Min Rate: 0.3%
+    • Max Rate: 99.7%
+    • Near Max Rate: 99.7%
+
+============================================================

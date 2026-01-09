@@ -1,0 +1,10 @@
+{
+    "importance_weights": {
+        "kids_bed_present": 1.5,
+        "table_height_safety_gradient": 3.0,
+        "combined_table_presence_and_safety": 2.0,
+        "non_penetration": 2.5,
+        "not_out_of_bound": 2.5,
+        "accessibility": 1.5
+    }
+}

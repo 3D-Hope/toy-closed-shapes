@@ -1,0 +1,27 @@
+
+=== REWARD ANALYSIS: R1_minimum_seating_capacity ===
+
+PERFORMANCE METRICS:
+  • Success Rate: 0.0% (0/4041 scenes)
+  • Mean Reward: -8.9975
+  • Median Reward: -9.0000
+  • Range: [-10.0000, -4.0000]
+  • Std Dev: 0.7171
+  • Percentiles:
+      - P1: -10.0000
+      - P5: -10.0000
+      - P25: -9.0000
+      - P75: -9.0000
+      - P95: -8.0000
+      - P99: -7.0000
+
+DISTRIBUTION CHARACTERISTICS:
+
+  • Skewness: 1.03
+  • Kurtosis: 3.31
+    • Min Rate: 20.6%
+    • Near Min Rate: 20.6%
+    • Max Rate: 0.0%
+    • Near Max Rate: 0.0%
+
+============================================================

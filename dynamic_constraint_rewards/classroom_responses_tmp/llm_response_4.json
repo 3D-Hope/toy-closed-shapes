@@ -1,0 +1,15 @@
+{
+    "importance_weights": {
+        "minimum_student_seating": 2.0,
+        "desk_or_table_presence": 2.0,
+        "adequate_lighting": 1.5,
+        "storage_furniture_present": 1.5,
+        "chairs_near_tables_relaxed": 1.0,
+        "forward_facing_tendency": 0.8,
+        "spacing_consistency_relaxed": 0.8,
+        "non_penetration": 3.0,
+        "not_out_of_bound": 3.0,
+        "accessibility": 2.0,
+        "gravity_following": 2.5
+    }
+}

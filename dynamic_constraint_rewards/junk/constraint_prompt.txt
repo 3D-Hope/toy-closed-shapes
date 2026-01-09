@@ -1,0 +1,42 @@
+
+    You are an expert in interior design and 3D scene generation. You need to generate constraints for a bedroom scene generation system.
+    
+    ### Input
+    - Query (query): A string like "a kids room"
+    - Room Type (room_type): A string like "bedroom"
+    - Kwargs: (Optional: Use only when needed (**kwargs), don't assume from the prompt that they are there)
+        - Object Index to Class Mapping (idx_to_labels): (Optional)
+            - A dictionary of key as object_indices and value as it's class
+            Example for bedroom:
+            {'0': 'armchair', '1': 'bookshelf', '2': 'cabinet', '3': 'ceiling_lamp', '4': 'chair', '5': 'children_cabinet', '6': 'coffee_table', '7': 'desk', '8': 'double_bed', '9': 'dressing_chair', '10': 'dressing_table', '11': 'kids_bed', '12': 'nightstand', '13': 'pendant_lamp', '14': 'shelf', '15': 'single_bed', '16': 'sofa', '17': 'stool', '18': 'table', '19': 'tv_stand', '20': 'wardrobe'}
+        - Room Type (room_type): A string like "bedroom"
+        - Max Constraints (max_constraints): Integer like "3" representing the maximum number of constraints to generate.
+        
+    ### Output
+    - Constraints (constraints): A dictionary of constraints in JSON format as shown below.
+    
+    ### Example Template (Query: "a wheelchair accessible room")
+    ```json
+    {
+        "constraints": [
+            "space between bed and wall should be at least 0.5 meters",
+            "beside the bed should be enough space for a wheelchair to pass through",
+            "no other chairs should be in the room"
+        ]
+    }
+    ```
+    
+    These are the available objects in the bedroom:
+    armchair, bookshelf, cabinet, ceiling_lamp, chair, children_cabinet, coffee_table, desk, double_bed, dressing_chair, dressing_table, kids_bed, nightstand, pendant_lamp, shelf, single_bed, sofa, stool, table, tv_stand, wardrobe
+    
+    Note:
+    - Consider the available objects in the bedroom and generate the constraints accordingly.
+    - Do no generate more than 3 constraints.
+    
+    
+    ### Output Format
+    Return ONLY the JSON for the constraints. No explanations or markdown formatting.
+    
+    So, generate the constraints for the following query:
+    "The user wants a bedroom with a kids room"
+    

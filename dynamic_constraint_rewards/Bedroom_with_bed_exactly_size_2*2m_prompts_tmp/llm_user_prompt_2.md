@@ -1,0 +1,4 @@
+
+    User Prompt: Bedroom with bed exactly size 2*2m.
+    Constraints to be satisfied: {'constraints': [{'id': 'C1', 'name': 'bed_exact_size_2x2m', 'description': "Verifies that a bed object (double_bed, single_bed, or kids_bed) exists with dimensions exactly 2m × 2m in the XZ plane (horizontal dimensions). The bed's size along X-axis and Z-axis should both be 2.0 meters (±0.05m tolerance for numerical precision)."}, {'id': 'C2', 'name': 'bed_presence_required', 'description': 'Ensures that at least one bed object (double_bed, single_bed, or kids_bed) is present in the bedroom scene and is not marked as empty.'}]}
+    

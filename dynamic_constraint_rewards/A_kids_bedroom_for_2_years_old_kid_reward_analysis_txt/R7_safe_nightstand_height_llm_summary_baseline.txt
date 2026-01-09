@@ -1,0 +1,27 @@
+
+=== REWARD ANALYSIS: R7_safe_nightstand_height ===
+
+PERFORMANCE METRICS:
+  • Success Rate: 0.0% (0/1000 scenes)
+  • Mean Reward: 0.3422
+  • Median Reward: 0.3875
+  • Range: [0.0000, 0.8000]
+  • Std Dev: 0.2169
+  • Percentiles:
+      - P1: 0.0000
+      - P5: 0.0000
+      - P25: 0.2000
+      - P75: 0.5000
+      - P95: 0.6667
+      - P99: 0.7500
+
+DISTRIBUTION CHARACTERISTICS:
+
+  • Skewness: -0.15
+  • Kurtosis: -0.97
+    • Min Rate: 17.9%
+    • Near Min Rate: 17.9%
+    • Max Rate: 0.4%
+    • Near Max Rate: 1.9%
+
+============================================================

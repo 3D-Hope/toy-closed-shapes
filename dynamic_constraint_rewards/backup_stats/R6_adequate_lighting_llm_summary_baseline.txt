@@ -1,0 +1,27 @@
+
+=== REWARD ANALYSIS: R6_adequate_lighting ===
+
+PERFORMANCE METRICS:
+  • Success Rate: 100.0% (1000/1000 scenes)
+  • Mean Reward: 0.0000
+  • Median Reward: 0.0000
+  • Range: [0.0000, 0.0000]
+  • Std Dev: 0.0000
+  • Percentiles:
+      - P1: 0.0000
+      - P5: 0.0000
+      - P25: 0.0000
+      - P75: 0.0000
+      - P95: 0.0000
+      - P99: 0.0000
+
+DISTRIBUTION CHARACTERISTICS:
+
+  • Skewness: nan
+  • Kurtosis: nan
+    • Min Rate: 100.0%
+    • Near Min Rate: 100.0%
+    • Max Rate: 100.0%
+    • Near Max Rate: 100.0%
+
+============================================================

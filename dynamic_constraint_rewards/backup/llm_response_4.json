@@ -1,0 +1,16 @@
+{
+    "importance_weights": {
+        "minimum_seating_capacity": 3.0,
+        "has_teaching_workspace": 2.0,
+        "sufficient_student_workspace": 2.5,
+        "chair_to_table_proximity": 2.0,
+        "adequate_lighting": 1.5,
+        "reduced_living_room_furniture": 2.5,
+        "storage_availability": 1.0,
+        "non_penetration": 3.5,
+        "not_out_of_bound": 3.5,
+        "accessibility": 2.0,
+        "gravity_following": 2.5,
+        "axis_alignment": 1.0
+    }
+}

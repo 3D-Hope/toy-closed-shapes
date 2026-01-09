@@ -1,0 +1,27 @@
+
+=== REWARD ANALYSIS: SR3_sufficient_student_workspace ===
+
+PERFORMANCE METRICS:
+  • Success Rate: 0.0% (0/813 scenes)
+  • Mean Reward: -0.8290
+  • Median Reward: -1.0000
+  • Range: [-2.0000, 0.0000]
+  • Std Dev: 0.6866
+  • Percentiles:
+      - P1: -2.0000
+      - P5: -2.0000
+      - P25: -1.0000
+      - P75: 0.0000
+      - P95: 0.0000
+      - P99: 0.0000
+
+DISTRIBUTION CHARACTERISTICS:
+
+  • Skewness: -0.23
+  • Kurtosis: -0.89
+    • Min Rate: 16.5%
+    • Near Min Rate: 16.5%
+    • Max Rate: 33.6%
+    • Near Max Rate: 33.6%
+
+============================================================

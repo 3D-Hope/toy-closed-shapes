@@ -1,0 +1,19 @@
+{
+    "constraints": [
+        {
+            "id": "C1",
+            "name": "kids_bed_present",
+            "description": "Verifies that at least one kids_bed exists in the bedroom scene, confirming this is indeed a kids bedroom as specified by the user."
+        },
+        {
+            "id": "C2",
+            "name": "table_height_unreachable_by_toddler",
+            "description": "Ensures that any table objects (table, desk, dressing_table) in the scene have their top surface positioned at a height greater than 1.1 meters from the floor, making them unreachable by a 2-year-old child who can reach up to approximately 1.0-1.1 meters with arms extended. The table top height is calculated as the y-position (centroid) plus the half-height (size_y), since y-position represents the centroid and size represents half-extents."
+        },
+        {
+            "id": "C3",
+            "name": "table_exists_in_scene",
+            "description": "Verifies that at least one table-type object (table, desk, or dressing_table) exists in the scene. This is a prerequisite for applying the height constraint, as the safety requirement is meaningless without tables present."
+        }
+    ]
+}

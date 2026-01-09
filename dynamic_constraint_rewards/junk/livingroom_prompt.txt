@@ -1,0 +1,289 @@
+
+        You are an expert in 3D scene generation and reinforcement learning. You need to generate Python reward functions for custom constraints in a scene generation system.
+
+        ### Project Context
+        This is a steerable scene generation system that uses diffusion models + RL to generate 3D scenes that satisfy user-specified constraints. The system operates on object-parameter space where each scene contains up to 21 objects, each with:
+        - Category (one-hot encoded, 24 classes)
+        - Position (x, y, z in meters)
+        - Size (width/2, height/2, depth/2 in meters) 
+        - Orientation (cos θ, sin θ around vertical axis)
+
+        ### Input Format
+
+    - Parsed Scene (Must Have Parameter) (parsed_scene):
+        Scenes are provided as parsed dictionaries with:
+        - `positions`: (B, N, 3) - object centroids
+        - `sizes`: (B, N, 3) - object dimensions (half-extents) (sx/2, sy/2, sz/2)
+        - `object_indices`: (B, N) - object class indices
+        - `one_hot`: (B, N, num_classes)
+        - `is_empty`: (B, N) - boolean mask for empty slots
+        - `orientations`: (B, N, 2) - cos/sin of rotation angles ([cos_theta, sin_theta])
+            where, theta = z_angle
+        - `device`: ddevice of input tensor
+
+        where,
+        B = Batch size
+        N = Number of objects
+
+        Some Facts about the input scene are:
+
+        - y is vertical direction xz plane is floor and the values are in format (x, y, z)
+        - Scene is Unnormalized and in world coordinates
+        - all lengths are in meter
+        - ignore the empty slots while calculating any reward because they are removed before rendering scenes so they do not occupy any space
+        - empty slot that does not have anyfurniture should have index in ohe num_classes - 1 and it has almost zero size, centroid and orietations.
+
+    - Kwargs: (Optional: Use only when needed (**kwargs), don't assume from the prompt that they are there)
+        - Object Index to Class Mapping (idx_to_labels): (Optional)
+
+            - A dictionary of key as object_indices and value as it's class
+            Example for livingroom:
+            {'0': 'armchair', '1': 'bookshelf', '2': 'cabinet', '3': 'ceiling_lamp', '4': 'chaise_longue_sofa', '5': 'chinese_chair', '6': 'coffee_table', '7': 'console_table', '8': 'corner_side_table', '9': 'desk', '10': 'dining_chair', '11': 'dining_table', '12': 'l_shaped_sofa', '13': 'lazy_sofa', '14': 'lounge_chair', '15': 'loveseat_sofa', '16': 'multi_seat_sofa', '17': 'pendant_lamp', '18': 'round_end_table', '19': 'shelf', '20': 'stool', '21': 'tv_stand', '22': 'wardrobe', '23': 'wine_cabinet'}
+
+        - Room Type (room_type): A string like "livingroom" (Optional)
+        
+        - Floor Vertices (floor_vertices): A list of floor vertices in the format [(x1, y1, z1), (x2, y2, z2), ...] (Optional)
+
+    ### Reward Function Requirements
+    Generate a complete Python module with:
+
+    1. **Main reward function** that:
+    - Takes `parsed_scene` dict as input
+    - Returns tensor of shape (B,) with rewards for each scene
+    - Uses **kwargs for compatibility
+    - Handles edge cases (empty scenes, invalid inputs)
+    - Can use non-differentiable logic
+    - Higher reward means better scene (as expected)
+
+    2. **Test function** that:
+    - Creates synthetic test scenes
+    - Validates reward behavior
+    - Demonstrates different constraint scenarios
+    - Includes assertions for expected behavior
+    - Validates the input side is in expected format
+    
+    
+    Note: Use the idx_to_labels, max_objects, num_classes intelligently from the kwargs and also take the provided mapping of the prompt in account as well while fetching the values from dictionary.
+
+### Example Template (Query: "a bed facing a tv stand and there should be an armchair as well")
+```python
+import torch
+import torch.nn.functional as F
+import math
+
+
+def compute_bedroom_constraint_reward(parsed_scene, **kwargs):
+    """
+    Reward function for: "a bed facing a tv stand and there should be an armchair as well"
+    
+    Requirements:
+    1. Scene must have a bed
+    2. Scene must have a tv stand
+    3. Scene must have an armchair
+    4. Bed should face the tv stand (orientation alignment)
+    
+    Args:
+        parsed_scene: Dict with scene data
+        **kwargs: idx_to_labels for object mapping
+    
+    Returns:
+        rewards: Tensor of shape (B,) with constraint satisfaction rewards
+    """
+    device = parsed_scene["device"]
+    B = parsed_scene["positions"].shape[0]
+    
+    is_empty = parsed_scene["is_empty"]
+    object_indices = parsed_scene["object_indices"]
+    positions = parsed_scene["positions"]
+    orientations = parsed_scene["orientations"]
+    
+    # Get object label mapping
+    idx_to_labels = kwargs.get("idx_to_labels", {})
+    labels_to_idx = {v: k for k, v in idx_to_labels.items()}
+    
+    # Find required object indices
+    bed_idx = labels_to_idx.get("bed", -1)
+    tv_stand_idx = labels_to_idx.get("tv_stand", -1)
+    armchair_idx = labels_to_idx.get("armchair", -1)
+    
+    rewards = torch.zeros(B, device=device)
+    
+    for b in range(B):
+        batch_reward = 0.0
+        
+        # Get valid objects in this scene
+        valid_mask = ~is_empty[b]
+        valid_indices = object_indices[b][valid_mask]
+        valid_positions = positions[b][valid_mask]
+        valid_orientations = orientations[b][valid_mask]
+        
+        # Check for required objects
+        has_bed = (valid_indices == bed_idx).any().item() if bed_idx >= 0 else False
+        has_tv_stand = (valid_indices == tv_stand_idx).any().item() if tv_stand_idx >= 0 else False
+        has_armchair = (valid_indices == armchair_idx).any().item() if armchair_idx >= 0 else False
+        
+        # Reward component 1: Existence of required objects (0-3 points)
+        existence_reward = float(has_bed) + float(has_tv_stand) + float(has_armchair)
+        batch_reward += existence_reward
+        
+        # Reward component 2: Bed facing TV stand (0-2 points)
+        if has_bed and has_tv_stand:
+            bed_mask = valid_indices == bed_idx
+            tv_mask = valid_indices == tv_stand_idx
+            
+            bed_pos = valid_positions[bed_mask][0]
+            tv_pos = valid_positions[tv_mask][0]
+            bed_orient = valid_orientations[bed_mask][0]
+            
+            # Calculate direction from bed to TV
+            direction = tv_pos - bed_pos
+            direction_xz = torch.tensor([direction[0], direction[2]], device=device)
+            direction_xz = direction_xz / (torch.norm(direction_xz) + 1e-6)
+            
+            # Bed orientation vector (forward direction)
+            bed_forward = bed_orient  # [cos_theta, sin_theta]
+            
+            # Calculate alignment (dot product)
+            alignment = torch.dot(bed_forward, direction_xz)
+            
+            # Reward based on alignment (-1 to 1, we want positive values)
+            # alignment = 1 means perfectly aligned, -1 means opposite
+            facing_reward = (alignment + 1.0) / 2.0 * 2.0  # Scale to 0-2
+            batch_reward += facing_reward.item()
+        
+        rewards[b] = batch_reward
+    
+    return rewards
+
+
+def test_bedroom_constraint_reward(**kwargs):
+    """
+    Test the bedroom constraint reward function.
+    """
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    
+    # Example idx_to_labels for bedroom
+    idx_to_labels = kwargs.get("idx_to_labels", {})
+    labels_to_idx = {v: k for k, v in idx_to_labels.items()}
+    
+    num_classes = len(idx_to_labels)
+    max_objects = 10
+    B = 3
+    
+    # Test Case 1: Perfect scene with bed facing TV
+    print("Test Case 1: Perfect alignment")
+    parsed_scene_1 = {
+        "positions": torch.tensor([
+            [[1.0, 0.5, 0.0], [3.0, 0.5, 0.0], [0.0, 0.5, 2.0]] + 
+            [[0.0, 0.0, 0.0]] * (max_objects - 3)
+        ], device=device),
+        "sizes": torch.tensor([
+            [[1.0, 0.5, 0.8], [0.5, 0.5, 0.3], [0.4, 0.4, 0.4]] + 
+            [[0.01, 0.01, 0.01]] * (max_objects - 3)
+        ], device=device),
+        "object_indices": torch.tensor([
+            [0, 1, 2] + [5] * (max_objects - 3)
+        ], device=device, dtype=torch.long),
+        "is_empty": torch.tensor([
+            [False, False, False] + [True] * (max_objects - 3)
+        ], device=device),
+        "orientations": torch.tensor([
+            [[1.0, 0.0], [1.0, 0.0], [0.0, 1.0]] + 
+            [[0.0, 0.0]] * (max_objects - 3)
+        ], device=device),
+        "one_hot": F.one_hot(torch.tensor([[0, 1, 2] + [5] * (max_objects - 3)], 
+                             dtype=torch.long), num_classes).float().to(device),
+        "device": device
+    }
+    
+    reward_1 = compute_bedroom_constraint_reward(parsed_scene_1, idx_to_labels=idx_to_labels)
+    print(f"Reward: {reward_1.item():.2f} (Expected: ~5.0)")
+    assert reward_1.item() > 4.5, "Perfect scene should have high reward"
+    
+    # Test Case 2: Missing armchair
+    print("Test Case 2: Missing armchair")
+    parsed_scene_2 = {
+        "positions": torch.tensor([
+            [[1.0, 0.5, 0.0], [3.0, 0.5, 0.0]] + 
+            [[0.0, 0.0, 0.0]] * (max_objects - 2)
+        ], device=device),
+        "sizes": torch.tensor([
+            [[1.0, 0.5, 0.8], [0.5, 0.5, 0.3]] + 
+            [[0.01, 0.01, 0.01]] * (max_objects - 2)
+        ], device=device),
+        "object_indices": torch.tensor([
+            [0, 1] + [5] * (max_objects - 2)
+        ], device=device, dtype=torch.long),
+        "is_empty": torch.tensor([
+            [False, False] + [True] * (max_objects - 2)
+        ], device=device),
+        "orientations": torch.tensor([
+            [[1.0, 0.0], [1.0, 0.0]] + 
+            [[0.0, 0.0]] * (max_objects - 2)
+        ], device=device),
+        "one_hot": F.one_hot(torch.tensor([[0, 1] + [5] * (max_objects - 2)], 
+                             dtype=torch.long), num_classes).float().to(device),
+        "device": device
+    }
+    
+    reward_2 = compute_bedroom_constraint_reward(parsed_scene_2, idx_to_labels=idx_to_labels)
+    print(f"Reward: {reward_2.item():.2f} (Expected: ~4.0)")
+    assert reward_2.item() < reward_1.item(), "Missing object should reduce reward"
+    
+    # Test Case 3: Bed facing away from TV
+    print("Test Case 3: Bed facing away from TV")
+    parsed_scene_3 = {
+        "positions": torch.tensor([
+            [[1.0, 0.5, 0.0], [3.0, 0.5, 0.0], [0.0, 0.5, 2.0]] + 
+            [[0.0, 0.0, 0.0]] * (max_objects - 3)
+        ], device=device),
+        "sizes": torch.tensor([
+            [[1.0, 0.5, 0.8], [0.5, 0.5, 0.3], [0.4, 0.4, 0.4]] + 
+            [[0.01, 0.01, 0.01]] * (max_objects - 3)
+        ], device=device),
+        "object_indices": torch.tensor([
+            [0, 1, 2] + [5] * (max_objects - 3)
+        ], device=device, dtype=torch.long),
+        "is_empty": torch.tensor([
+            [False, False, False] + [True] * (max_objects - 3)
+        ], device=device),
+        "orientations": torch.tensor([
+            [[-1.0, 0.0], [1.0, 0.0], [0.0, 1.0]] + 
+            [[0.0, 0.0]] * (max_objects - 3)
+        ], device=device),
+        "one_hot": F.one_hot(torch.tensor([[0, 1, 2] + [5] * (max_objects - 3)], 
+                             dtype=torch.long), num_classes).float().to(device),
+        "device": device
+    }
+    
+    reward_3 = compute_bedroom_constraint_reward(parsed_scene_3, idx_to_labels=idx_to_labels)
+    print(f"Reward: {reward_3.item():.2f} (Expected: ~3.0)")
+    assert reward_3.item() < reward_1.item(), "Wrong orientation should reduce reward"
+    
+    print("✓ All tests passed!")
+
+
+if __name__ == "__main__":
+    test_bedroom_constraint_reward()
+
+### Common Constraint Types to Handle
+- **Spatial relationships**: "bed near wall", "chair facing table"
+- **Functional requirements**: "wheelchair accessible", "clear pathways"
+- **Aesthetic preferences**: "balanced composition", "minimal clutter"
+- **Safety constraints**: "no overlapping objects", "stable placement"
+- **Room-specific rules**: "bedroom must have bed", "kitchen needs table"
+
+### Technical Constraints
+- Use PyTorch operations for GPU compatibility
+- Handle batch processing efficiently
+- Avoid degenerate solutions (e.g., empty scenes for spaciousness)
+- Normalize rewards to reasonable ranges
+- Include proper error handling
+
+### Output Format
+Return ONLY the Python code for the reward function and test cases with a if name is main block. No explanations or markdown formatting.
+
+### Example Constraint Request
+"Generate a reward function for 'wheelchair accessibility' that ensures clear pathways of at least 0.8m width between furniture and walls."
+
+Now, generate the reward function for: "Make a livingroom with should have a tv stand and a chair"

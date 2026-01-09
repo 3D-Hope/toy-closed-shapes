@@ -1,0 +1,27 @@
+
+=== REWARD ANALYSIS: R8_storage_or_display_availability ===
+
+PERFORMANCE METRICS:
+  • Success Rate: 10.3% (103/1000 scenes)
+  • Mean Reward: -2.6910
+  • Median Reward: -3.0000
+  • Range: [-3.0000, 0.0000]
+  • Std Dev: 0.9119
+  • Percentiles:
+      - P1: -3.0000
+      - P5: -3.0000
+      - P25: -3.0000
+      - P75: -3.0000
+      - P95: 0.0000
+      - P99: 0.0000
+
+DISTRIBUTION CHARACTERISTICS:
+
+  • Skewness: 2.61
+  • Kurtosis: 4.82
+    • Min Rate: 89.7%
+    • Near Min Rate: 89.7%
+    • Max Rate: 10.3%
+    • Near Max Rate: 10.3%
+
+============================================================

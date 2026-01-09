@@ -1,0 +1,27 @@
+
+=== REWARD ANALYSIS: R3_organized_seating_arrangement ===
+
+PERFORMANCE METRICS:
+  • Success Rate: 96.6% (966/1000 scenes)
+  • Mean Reward: -0.2504
+  • Median Reward: 0.0000
+  • Range: [-8.3705, 0.0000]
+  • Std Dev: 1.3809
+  • Percentiles:
+      - P1: -8.1256
+      - P5: 0.0000
+      - P25: 0.0000
+      - P75: 0.0000
+      - P95: 0.0000
+      - P99: 0.0000
+
+DISTRIBUTION CHARACTERISTICS:
+
+  • Skewness: -5.37
+  • Kurtosis: 26.92
+    • Min Rate: 0.1%
+    • Near Min Rate: 0.6%
+    • Max Rate: 96.6%
+    • Near Max Rate: 96.7%
+
+============================================================

@@ -1,0 +1,39 @@
+{
+  "constraints": [
+    {
+      "id": "C1",
+      "name": "minimum_student_seating",
+      "description": "Ensures at least 10 seating positions are available (dining chairs, armchairs, lounge chairs, stools, or sofas with appropriate capacity)"
+    },
+    {
+      "id": "C2",
+      "name": "desk_or_table_presence",
+      "description": "Verifies that at least one desk or dining table exists for classroom activities"
+    },
+    {
+      "id": "C3",
+      "name": "chairs_near_tables",
+      "description": "Ensures that seating furniture is positioned within reasonable distance (e.g., 1.5m) of desks or tables for functional use"
+    },
+    {
+      "id": "C4",
+      "name": "forward_facing_arrangement",
+      "description": "Checks that chairs are oriented towards a common focal point (e.g., front of room where teacher/board would be) with similar rotation angles"
+    },
+    {
+      "id": "C5",
+      "name": "adequate_lighting",
+      "description": "Ensures at least one ceiling lamp or pendant lamp is present for classroom illumination"
+    },
+    {
+      "id": "C6",
+      "name": "storage_furniture_present",
+      "description": "Verifies presence of at least one storage unit (bookshelf, cabinet, or shelf) for classroom materials and supplies"
+    },
+    {
+      "id": "C7",
+      "name": "uniform_spacing_between_seats",
+      "description": "Checks that seating positions maintain relatively consistent spacing (e.g., within 0.5m variance) to create organized rows or arrangements typical of classrooms"
+    }
+  ]
+}

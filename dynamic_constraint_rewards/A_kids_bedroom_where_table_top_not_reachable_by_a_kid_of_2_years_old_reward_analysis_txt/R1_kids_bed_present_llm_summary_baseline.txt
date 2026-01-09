@@ -1,0 +1,27 @@
+
+=== REWARD ANALYSIS: R1_kids_bed_present ===
+
+PERFORMANCE METRICS:
+  • Success Rate: 2.6% (26/1000 scenes)
+  • Mean Reward: -0.9480
+  • Median Reward: -1.0000
+  • Range: [-1.0000, 1.0000]
+  • Std Dev: 0.3183
+  • Percentiles:
+      - P1: -1.0000
+      - P5: -1.0000
+      - P25: -1.0000
+      - P75: -1.0000
+      - P95: -1.0000
+      - P99: 1.0000
+
+DISTRIBUTION CHARACTERISTICS:
+
+  • Skewness: 5.96
+  • Kurtosis: 33.49
+    • Min Rate: 97.4%
+    • Near Min Rate: 97.4%
+    • Max Rate: 2.6%
+    • Near Max Rate: 2.6%
+
+============================================================

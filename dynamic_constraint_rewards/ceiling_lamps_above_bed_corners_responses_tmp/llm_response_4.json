@@ -1,0 +1,11 @@
+{
+    "importance_weights": {
+        "bed_presence": 10.0,
+        "ceiling_lamp_count": 2.5,
+        "lamps_near_bed_corners": 3.0,
+        "non_penetration": 2.0,
+        "not_out_of_bound": 2.0,
+        "accessibility": 1.5,
+        "gravity_following": 1.5
+    }
+}

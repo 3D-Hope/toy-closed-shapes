@@ -1,0 +1,13 @@
+defaults:
+  - base_slurm
+
+is_compute_node_offline: False
+
+params:
+  env_name: venv  # Your conda environment name
+  partition: debug
+  num_gpus: 1
+  constraint: a6000  # Request specifically an A6000 GPU
+  num_cpus: 8
+  memory: 32G
+  time: "04:00:00"  # 4 hours

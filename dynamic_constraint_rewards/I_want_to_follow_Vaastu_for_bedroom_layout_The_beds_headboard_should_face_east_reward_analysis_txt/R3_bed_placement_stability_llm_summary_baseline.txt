@@ -1,0 +1,27 @@
+
+=== REWARD ANALYSIS: R3_bed_placement_stability ===
+
+PERFORMANCE METRICS:
+  • Success Rate: 98.5% (985/1000 scenes)
+  • Mean Reward: 0.9918
+  • Median Reward: 1.0000
+  • Range: [-1.0000, 1.0000]
+  • Std Dev: 0.1111
+  • Percentiles:
+      - P1: 0.9304
+      - P5: 0.9977
+      - P25: 1.0000
+      - P75: 1.0000
+      - P95: 1.0000
+      - P99: 1.0000
+
+DISTRIBUTION CHARACTERISTICS:
+
+  • Skewness: -17.40
+  • Kurtosis: 307.12
+    • Min Rate: 0.3%
+    • Near Min Rate: 0.3%
+    • Max Rate: 94.5%
+    • Near Max Rate: 98.5%
+
+============================================================

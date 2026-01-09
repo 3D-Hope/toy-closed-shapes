@@ -1,0 +1,27 @@
+
+=== REWARD ANALYSIS: SR5_adequate_lighting ===
+
+PERFORMANCE METRICS:
+  • Success Rate: 19.5% (195/1000 scenes)
+  • Mean Reward: -0.8050
+  • Median Reward: -1.0000
+  • Range: [-1.0000, 0.0000]
+  • Std Dev: 0.3962
+  • Percentiles:
+      - P1: -1.0000
+      - P5: -1.0000
+      - P25: -1.0000
+      - P75: -1.0000
+      - P95: 0.0000
+      - P99: 0.0000
+
+DISTRIBUTION CHARACTERISTICS:
+
+  • Skewness: 1.54
+  • Kurtosis: 0.37
+    • Min Rate: 80.5%
+    • Near Min Rate: 80.5%
+    • Max Rate: 19.5%
+    • Near Max Rate: 19.5%
+
+============================================================

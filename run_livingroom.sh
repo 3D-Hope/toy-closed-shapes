@@ -1,0 +1,29 @@
+source .venv/bin/activate
+PYTHONPATH=. python -u main.py +name=continuous_mi_livingroom_floor_obj32 \
+    dataset=custom_scene \
+    dataset.data.dataset_directory=livingroom \
+    dataset.data.annotation_file=livingroom_threed_front_splits.csv \
+    dataset.data.room_type=livingroom \
+    dataset.processed_scene_data_path=data/metadatas/custom_scene_metadata.json \
+    dataset._name=custom_scene \
+    dataset.max_num_objects_per_scene=21 \
+    algorithm=scene_diffuser_midiffusion \
+    algorithm.trainer=ddpm \
+    experiment.find_unused_parameters=True \
+    algorithm.classifier_free_guidance.use=False \
+    algorithm.classifier_free_guidance.use_floor=True \
+    algorithm.classifier_free_guidance.weight=0 \
+    algorithm.custom.obj_vec_len=65 \
+    algorithm.custom.obj_diff_vec_len=65 \
+    algorithm.custom.loss=true \
+    algorithm.custom.objfeat_dim=0 \
+    algorithm.custom.num_classes=25 \
+    algorithm.validation.num_samples_to_render=0 \
+    algorithm.validation.num_samples_to_visualize=0 \
+    algorithm.validation.num_directives_to_generate=0 \
+    algorithm.test.num_samples_to_render=0 \
+    algorithm.test.num_samples_to_visualize=0 \
+    algorithm.test.num_directives_to_generate=0 \
+    algorithm.validation.num_samples_to_compute_physical_feasibility_metrics_for=0 \
+    dataset.data.encoding_type=cached_diffusion_cosin_angle_objfeats_lat32_wocm \
+    dataset.data.path_to_processed_data=/media/ajad/YourBook/AshokSaugatResearchBackup/AshokSaugatResearch/3d_front_data

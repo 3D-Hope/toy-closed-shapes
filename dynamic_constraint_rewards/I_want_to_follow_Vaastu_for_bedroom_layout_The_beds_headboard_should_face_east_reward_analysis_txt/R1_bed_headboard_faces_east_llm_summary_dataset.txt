@@ -1,0 +1,27 @@
+
+=== REWARD ANALYSIS: R1_bed_headboard_faces_east ===
+
+PERFORMANCE METRICS:
+  • Success Rate: 26.0% (1050/4041 scenes)
+  • Mean Reward: 0.1372
+  • Median Reward: 0.0000
+  • Range: [-1.0000, 1.0000]
+  • Std Dev: 0.6045
+  • Percentiles:
+      - P1: -1.0000
+      - P5: -1.0000
+      - P25: 0.0000
+      - P75: 1.0000
+      - P95: 1.0000
+      - P99: 1.0000
+
+DISTRIBUTION CHARACTERISTICS:
+
+  • Skewness: -0.07
+  • Kurtosis: -0.37
+    • Min Rate: 11.9%
+    • Near Min Rate: 12.4%
+    • Max Rate: 25.9%
+    • Near Max Rate: 26.0%
+
+============================================================
