@@ -4,22 +4,57 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader, TensorDataset
 import numpy as np
 import matplotlib.pyplot as plt
-from diffusers import DDPMScheduler
+from diffusers import DDPMScheduler, DDIMScheduler
 import math
 from pathlib import Path
 from scipy.spatial.distance import cdist
 from scipy.linalg import sqrtm
 import pandas as pd
 import time
+from typing import Optional, Tuple
+from diffusers.utils.torch_utils import randn_tensor
+
+
+# config = {
+#     "noise_scheduler": "ddim", #or ddpm
+#     "num_train_steps": 40,
+#     "num_ddim_inference_steps": 10,
+#     "checkpoint_dir": "outputs/pretraining_40_rl_40/ckpt_toy",
+#     "skip_training_if_ckpt_exists": True,
+#     "run_eval": True,  # Set to True to run comprehensive evaluation
+    
+#     # RL Fine-tuning config
+#     "run_rl": True,  # Set to True to run RL fine-tuning
+#     "rl_checkpoint_dir": "outputs/pretraining_40_rl_40/ckpt_toy_rl",
+#     "rl_load_from_checkpoint": None,  # Path to checkpoint to fine-tune from (or None to use base checkpoint)
+#     "rl_num_epochs": 100000,
+#     "rl_batch_size": 512,
+#     "rl_num_inference_steps": 40,
+#     "rl_lr": 1e-6,
+#     "rl_ddpm_reg_weight": 0.0,  # Weight for DDPM regularization loss
+#     "rl_advantage_max": 10.0,  # Clipping for advantages
+# }
 
 config = {
     "noise_scheduler": "ddim", #or ddpm
-    "num_train_steps": 40,
-    "num_ddim_inference_steps": 10,
-    "checkpoint_dir": "tmp/ckpt_toy",
+    "num_train_steps": 1000,
+    "num_ddim_inference_steps": 150,
+    "checkpoint_dir": "outputs/pretraining_1000_rl_150/ckpt_toy",
     "skip_training_if_ckpt_exists": True,
     "run_eval": True,  # Set to True to run comprehensive evaluation
+    
+    # RL Fine-tuning config
+    "run_rl": True,  # Set to True to run RL fine-tuning
+    "rl_checkpoint_dir": "outputs/pretraining_1000_rl_150/ckpt_toy_rl",
+    "rl_load_from_checkpoint": None,  # Path to checkpoint to fine-tune from (or None to use base checkpoint)
+    "rl_num_epochs": 100000,
+    "rl_batch_size": 512,
+    "rl_num_inference_steps": 150,
+    "rl_lr": 1e-6,
+    "rl_ddpm_reg_weight": 0.0,  # Weight for DDPM regularization loss
+    "rl_advantage_max": 10.0,  # Clipping for advantages
 }
+
 # ==========================================
 # 1. Advanced Model Architecture
 #    (Encoder -> Residual Blocks -> Decoder)
@@ -143,6 +178,17 @@ def get_parallelogram_corners_normalized(v1, v2, x_min, x_max):
     return corners_normalized
 
 PARALLELOGRAM_CORNERS = get_parallelogram_corners_normalized(V1, V2, X_MIN, X_MAX)
+RECT_BOUNDS = (-0.5, 0.5, -0.5, 0.5)
+
+x_min_rect, x_max_rect, y_min_rect, y_max_rect = RECT_BOUNDS
+
+rectangle_corners = np.array([
+    [x_min_rect, y_min_rect],
+    [x_max_rect, y_min_rect],
+    [x_max_rect, y_max_rect],
+    [x_min_rect, y_max_rect],
+    [x_min_rect, y_min_rect]
+])
 
 # ==========================================
 # Evaluation Metrics
@@ -189,13 +235,17 @@ def check_points_in_parallelogram(points, v1, v2, x_min, x_max):
     The parallelogram is: p = a*v1 + b*v2, where 0 <= a, b <= 1
     
     Args:
-        points: Normalized points in [-1, 1] range (N, 2)
+        points: Normalized points in [-1, 1] range (N, 2) - can be numpy or torch
         v1, v2: Basis vectors of the parallelogram
         x_min, x_max: Min/max values used for normalization
         
     Returns:
         Boolean array indicating if each point is inside the parallelogram
     """
+    # Convert to numpy if torch tensor
+    if torch.is_tensor(points):
+        points = points.detach().cpu().numpy()
+    
     # Inverse normalization: from [-1, 1] back to original space
     points_original = (points + 1) / 2 * (x_max - x_min) + x_min
     
@@ -218,42 +268,49 @@ def check_points_in_parallelogram(points, v1, v2, x_min, x_max):
         # If singular, fall back to all False
         return np.zeros(len(points), dtype=bool)
 
-def compute_out_of_manifold_ratio(real_samples, generated_samples, threshold=0.1, parallelogram_params=None):
+def check_points_in_rectangle(points, rect_bounds, x_min, x_max):
     """
-    Compute the ratio of generated samples that are outside the data manifold.
+    Check if normalized points are within a rectangle defined in original space.
     
-    Uses two criteria:
-    1. Distance-based: Points that are too far from any real sample
-    2. Geometric (if parallelogram_params provided): Points outside the actual parallelogram
-    
-    Returns the ratio of out-of-manifold points.
+    Args:
+        points: Normalized points in [-1, 1] range (N, 2) - can be numpy or torch
+        rect_bounds: Tuple of (x_min_rect, x_max_rect, y_min_rect, y_max_rect) in original space
+        x_min, x_max: Min/max values used for normalization
+        
+    Returns:
+        Boolean array indicating if each point is inside the rectangle
     """
-    # Distance-based criterion: too far from any real point
-    distances = cdist(generated_samples, real_samples, metric='euclidean')
-    min_dist_to_real = distances.min(axis=1)
-    out_of_manifold_distance = (min_dist_to_real > threshold).sum()
+    # Convert to numpy if torch tensor
+    if torch.is_tensor(points):
+        points = points.detach().cpu().numpy()
     
-    # Geometric parallelogram criterion
-    if parallelogram_params is not None:
-        v1, v2, x_min, x_max = parallelogram_params
-        in_parallelogram = check_points_in_parallelogram(
-            generated_samples, v1, v2, x_min, x_max
-        )
-        out_of_manifold_geom = (~in_parallelogram).sum()
-        ratio_geom = out_of_manifold_geom / len(generated_samples)
-    else:
-        out_of_manifold_geom = 0
-        ratio_geom = 0.0
+    # Inverse normalization: from [-1, 1] back to original space
+    points_original = (points + 1) / 2 * (x_max - x_min) + x_min
     
-    total_generated = len(generated_samples)
-    ratio_distance = out_of_manifold_distance / total_generated
+    # Unpack rectangle bounds
+    x_min_rect, x_max_rect, y_min_rect, y_max_rect = rect_bounds
     
-    return {
-        'out_of_manifold_ratio_distance': ratio_distance,
-        'out_of_manifold_ratio_geometric': ratio_geom,
-        'out_of_manifold_count_distance': out_of_manifold_distance,
-        'out_of_manifold_count_geometric': out_of_manifold_geom,
-    }
+    # Check if points are inside rectangle
+    eps = 1e-6
+    inside = (
+        (points_original[:, 0] >= x_min_rect - eps) & 
+        (points_original[:, 0] <= x_max_rect + eps) &
+        (points_original[:, 1] >= y_min_rect - eps) & 
+        (points_original[:, 1] <= y_max_rect + eps)
+    )
+    
+    return inside
+
+def compute_geometric_reward(samples, v1, v2, x_min, x_max):
+    rect_bounds = RECT_BOUNDS
+    inside = check_points_in_rectangle(samples, rect_bounds, x_min, x_max)
+    
+    # Convert to torch tensor
+    rewards = torch.tensor(inside, dtype=torch.float32, device=samples.device)
+    rewards = 2.0 * rewards - 1.0  # Map True->1.0, False->-1.0
+    
+    return rewards
+
 
 def evaluate_samples(real_samples, generated_samples):
     """Compute evaluation metrics."""
@@ -279,21 +336,16 @@ def evaluate_samples(real_samples, generated_samples):
         real_samples[:n_eval], 
         generated_samples[:n_eval]
     )
-    
-    # Out-of-manifold ratio
-    oom_metrics = compute_out_of_manifold_ratio(
-        real_samples[:n_eval],
-        generated_samples[:n_eval],
-        threshold=0.1,
-        parallelogram_params=(V1, V2, X_MIN, X_MAX)
+    rewards = compute_geometric_reward(
+        torch.tensor(generated_samples[:n_eval], device=device), V1, V2, X_MIN, X_MAX
     )
+
     
     return {
         'frechet_distance': fd,
         'coverage': coverage,
         'mmd': mmd,
-        'out_of_manifold_ratio': oom_metrics['out_of_manifold_ratio_distance'],
-        'out_of_manifold_geometric_ratio': oom_metrics['out_of_manifold_ratio_geometric'],
+        'rewards_mean': rewards.mean().item(),
     }
 
 # ==========================================
@@ -305,7 +357,7 @@ def evaluate_samples(real_samples, generated_samples):
 
 noise_scheduler = DDPMScheduler(
     num_train_timesteps=config["num_train_steps"],
-    beta_schedule="squaredcos_cap_v2",
+    beta_schedule="linear",
     prediction_type="epsilon" # We predict noise
 )
 
@@ -321,7 +373,7 @@ checkpoint_path.mkdir(parents=True, exist_ok=True)
 checkpoint_file = checkpoint_path / "model_checkpoint.pt"
 
 start_epoch = 0
-num_epochs = 100
+num_epochs = 1000
 
 if checkpoint_file.exists() and config["skip_training_if_ckpt_exists"]:
     print(f"Loading checkpoint from {checkpoint_file}")
@@ -382,6 +434,133 @@ if start_epoch < num_epochs:
 # ==========================================
 # 4. Sampling with Diffusers Library
 # ==========================================
+def ddim_step_with_logprob(
+    scheduler: DDIMScheduler,
+    model_output: torch.FloatTensor,
+    timestep: int,
+    sample: torch.FloatTensor,
+    eta: float = 1.0,
+    use_clipped_model_output: bool = False,
+    generator=None,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    Copied and adapted from diffusers DDIM scheduler to return log probability.
+    
+    Predict the sample at the previous timestep by reversing the SDE.
+    Returns both the predicted previous sample and its log probability.
+    
+    Args:
+        scheduler: DDIMScheduler instance
+        model_output: Direct output from learned diffusion model (predicted noise)
+        timestep: Current discrete timestep in the diffusion chain
+        sample: Current instance of sample being created by diffusion process
+        eta: Weight of noise for added noise in diffusion step (0 = deterministic DDIM)
+        use_clipped_model_output: If True, recompute from clipped x_0
+        generator: Random number generator
+        
+    Returns:
+        Tuple of (prev_sample, log_prob)
+    """
+    assert isinstance(
+        scheduler, DDIMScheduler
+    ), "scheduler must be an instance of DDIMScheduler"
+    if scheduler.num_inference_steps is None:
+        raise ValueError(
+            "Number of inference steps is 'None', you need to run 'set_timesteps' "
+            "after creating the scheduler"
+        )
+    
+    # 1. Get previous step value (=t-1)
+    prev_timestep = (
+        timestep - scheduler.config.num_train_timesteps // scheduler.num_inference_steps
+    )
+    
+    # 2. Compute alphas, betas
+    alpha_prod_t = scheduler.alphas_cumprod[timestep]
+    alpha_prod_t_prev = (
+        scheduler.alphas_cumprod[prev_timestep]
+        if prev_timestep >= 0
+        else scheduler.final_alpha_cumprod
+    )
+    
+    beta_prod_t = 1 - alpha_prod_t
+    
+    # 3. Compute predicted original sample from predicted noise (x_0)
+    if scheduler.config.prediction_type == "epsilon":
+        pred_original_sample = (
+            sample - beta_prod_t ** (0.5) * model_output
+        ) / alpha_prod_t ** (0.5)
+        pred_epsilon = model_output
+    elif scheduler.config.prediction_type == "sample":
+        pred_original_sample = model_output
+        pred_epsilon = (
+            sample - alpha_prod_t ** (0.5) * pred_original_sample
+        ) / beta_prod_t ** (0.5)
+    elif scheduler.config.prediction_type == "v_prediction":
+        pred_original_sample = (alpha_prod_t**0.5) * sample - (
+            beta_prod_t**0.5
+        ) * model_output
+        pred_epsilon = (alpha_prod_t**0.5) * model_output + (
+            beta_prod_t**0.5
+        ) * sample
+    else:
+        raise ValueError(
+            f"prediction_type given as {scheduler.config.prediction_type} must be one of "
+            "`epsilon`, `sample`, or `v_prediction`"
+        )
+    
+    # 4. Clip or threshold "predicted x_0"
+    if scheduler.config.thresholding:
+        pred_original_sample = scheduler._threshold_sample(pred_original_sample)
+    elif scheduler.config.clip_sample:
+        pred_original_sample = pred_original_sample.clamp(
+            -scheduler.config.clip_sample_range, scheduler.config.clip_sample_range
+        )
+    
+    # 5. Compute variance: "sigma_t(η)"
+    variance = scheduler._get_variance(timestep, prev_timestep)
+    std_dev_t = eta * variance ** (0.5)
+    
+    if use_clipped_model_output:
+        # Re-derive pred_epsilon from clipped x_0
+        pred_epsilon = (
+            sample - alpha_prod_t ** (0.5) * pred_original_sample
+        ) / beta_prod_t ** (0.5)
+    
+    # 6. Compute "direction pointing to x_t"
+    pred_sample_direction = (1 - alpha_prod_t_prev - std_dev_t**2) ** (
+        0.5
+    ) * pred_epsilon
+    
+    # 7. Compute x_{t-1} mean (without random noise)
+    prev_sample_mean = (
+        alpha_prod_t_prev ** (0.5) * pred_original_sample + pred_sample_direction
+    )
+    
+    # 8. Sample from Gaussian
+    variance_noise = randn_tensor(
+        model_output.shape,
+        generator=generator,
+        device=model_output.device,
+        dtype=model_output.dtype,
+    )
+    prev_sample = prev_sample_mean + std_dev_t * variance_noise
+    
+    # 9. Compute log probability of the sample
+    # Key trick: detach prev_sample so gradients only flow through the mean
+    std_dev_t = torch.clamp(std_dev_t, min=1e-6)
+    log_prob = (
+        -((prev_sample.detach() - prev_sample_mean) ** 2) / (2 * (std_dev_t**2))
+        - torch.log(std_dev_t)
+        - torch.log(torch.sqrt(2 * torch.as_tensor(math.pi, device=std_dev_t.device)))
+    )
+    
+    # Mean over all dimensions except batch
+    log_prob = log_prob.mean(dim=tuple(range(1, log_prob.ndim)))
+    
+    return prev_sample, log_prob
+
+
 
 @torch.no_grad()
 def ddpm_sample_with_diffusers(model, scheduler, n_samples=10000, num_steps=None):
@@ -411,6 +590,7 @@ def ddpm_sample_with_diffusers(model, scheduler, n_samples=10000, num_steps=None
 
 @torch.no_grad()
 def ddim_sample_with_diffusers(model, scheduler, n_samples=10000, num_steps=None):
+    assert scheduler.__class__ == DDIMScheduler, "Scheduler must be DDIMScheduler"
     model.eval()
     if num_steps is None:
         num_steps = config["num_ddim_inference_steps"]
@@ -430,10 +610,76 @@ def ddim_sample_with_diffusers(model, scheduler, n_samples=10000, num_steps=None
         model_output = model(x, t_batch)
         
         # Step back: x_{t-1} = scheduler.step(...)
-        step_output = scheduler.step(model_output, t, x)
+        step_output = scheduler.step(model_output, t, x, eta=1.0)
         x = step_output.prev_sample
+        # print(f"using ddim step with logprob at timestep {t}")
+        # x, _ = ddim_step_with_logprob(
+        #     scheduler=scheduler,
+        #     model_output=model_output,
+        #     timestep=t,
+        #     sample=x,
+        #     eta=1.0,
+        # )
         
     return x.detach().cpu().numpy()
+
+
+def ddim_sample_with_log_probs(model, scheduler, n_samples=256, num_steps=20, eta=1.0):
+    """
+    Sample using DDIM while tracking log probabilities for RL training.
+    
+    Args:
+        model: Diffusion model
+        scheduler: DDIMScheduler instance
+        n_samples: Number of samples to generate
+        num_steps: Number of denoising steps
+        eta: Stochasticity parameter (0 = deterministic DDIM)
+        
+    Returns:
+        samples: Final samples (n_samples, 2)
+        log_probs: Sum of log probabilities across all timesteps (n_samples,)
+    """
+    model.eval()
+    
+    # 1. Start from random noise
+    x = torch.randn(n_samples, 2, device=device)
+    
+    # 2. Initialize scheduler timesteps
+    scheduler.set_timesteps(num_steps)
+    
+    # Track log probabilities
+    trajectory = []
+    trajectory_log_probs = []
+    
+    trajectory.append(x)
+    # 3. Denoising Loop
+    for t in scheduler.timesteps:
+        # Create batch of timesteps
+        t_batch = torch.full((n_samples,), t, device=device, dtype=torch.long)
+        
+        # Predict noise (model forward pass)
+        model_output = model(x, t_batch)
+        
+        # DDIM step with log probability
+        xt, log_prob = ddim_step_with_logprob(
+            scheduler=scheduler,
+            model_output=model_output,
+            timestep=t,
+            sample=x,
+            eta=eta,
+        )
+        
+        # Accumulate log probabilities
+        trajectory_log_probs.append(log_prob)
+        trajectory.append(xt)
+        x = xt
+        
+    
+    trajectories = torch.stack(trajectory, dim=1)
+    trajectories_log_probs = torch.stack(
+            trajectory_log_probs, dim=1
+        )
+    return trajectories, trajectories_log_probs
 
 # ==========================================
 # Comprehensive Evaluation
@@ -446,13 +692,11 @@ if config["run_eval"]:
     
     # Define evaluation configurations
     eval_configs = [
-        {"scheduler": "ddpm", "steps": 10, "name": "DDPM-10"},
-        {"scheduler": "ddpm", "steps": 20, "name": "DDPM-20"},
-        {"scheduler": "ddpm", "steps": 40, "name": "DDPM-40"},
-        {"scheduler": "ddim", "steps": 5, "name": "DDIM-5"},
-        {"scheduler": "ddim", "steps": 10, "name": "DDIM-10"},
-        {"scheduler": "ddim", "steps": 20, "name": "DDIM-20"},
-        {"scheduler": "ddim", "steps": 40, "name": "DDIM-40"},
+        {"scheduler": "ddpm", "steps": config["num_train_steps"], "name": f"DDPM-{config['num_train_steps']}"},
+        {"scheduler": "ddim", "steps": config["rl_num_inference_steps"]//10, "name": f"DDIM-{config['rl_num_inference_steps']//10}"},
+        {"scheduler": "ddim", "steps": config["rl_num_inference_steps"]//8, "name": f"DDIM-{config['rl_num_inference_steps']//8}"},
+        {"scheduler": "ddim", "steps": config["rl_num_inference_steps"]//2, "name": f"DDIM-{config['rl_num_inference_steps']//2}"},
+        {"scheduler": "ddim", "steps": config["rl_num_inference_steps"], "name": f"DDIM-{config['rl_num_inference_steps']}"},
     ]
     
     results = []
@@ -464,12 +708,23 @@ if config["run_eval"]:
         start_time = time.time()
         
         if eval_cfg['scheduler'] == 'ddpm':
+            noise_scheduler = DDPMScheduler(
+                num_train_timesteps=config["num_train_steps"],
+                beta_schedule="linear",
+                prediction_type="epsilon" # We predict noise
+            )
+
             samples = ddpm_sample_with_diffusers(
                 model, noise_scheduler, 
                 n_samples=10000, 
                 num_steps=eval_cfg['steps']
             )
         else:  # ddim
+            noise_scheduler = DDIMScheduler(
+                num_train_timesteps=config["num_train_steps"],
+                beta_schedule="linear",
+                prediction_type="epsilon" # We predict noise
+            )
             samples = ddim_sample_with_diffusers(
                 model, noise_scheduler, 
                 n_samples=10000, 
@@ -479,7 +734,7 @@ if config["run_eval"]:
         sampling_time = time.time() - start_time
         
         # Compute metrics
-        metrics = evaluate_samples(X_train[:10000], samples)
+        metrics = evaluate_samples(X_train[:512], samples)
         
         # Store results
         results.append({
@@ -489,7 +744,7 @@ if config["run_eval"]:
             'frechet_distance': metrics['frechet_distance'],
             'coverage': metrics['coverage'],
             'mmd': metrics['mmd'],
-            'outside_parallelogram_%': metrics['out_of_manifold_geometric_ratio'] * 100,
+            "mean_reward": metrics['rewards_mean'],
             'sampling_time_sec': sampling_time,
         })
         
@@ -499,7 +754,7 @@ if config["run_eval"]:
         print(f"  FD: {metrics['frechet_distance']:.6f} | "
               f"Coverage: {metrics['coverage']:.4f} | "
               f"MMD: {metrics['mmd']:.6f} | "
-              f"Outside Parallelogram: {metrics['out_of_manifold_geometric_ratio']*100:.2f}% | "
+              f"Mean Reward: {metrics['rewards_mean']:.4f} | "
               f"Time: {sampling_time:.2f}s")
     
     # Save results to CSV
@@ -538,7 +793,7 @@ if config["run_eval"]:
         row = df_results[df_results['name'] == eval_cfg['name']].iloc[0]
         title = f"{eval_cfg['name']}\n"
         title += f"FD: {row['frechet_distance']:.3f} | Cov: {row['coverage']:.3f}\n"
-        title += f"Outside Parallelogram: {row['outside_parallelogram_%']:.2f}%\n"
+        title += f"Mean Reward: {row['mean_reward']:.4f} | "
         title += f"{row['sampling_time_sec']:.1f}s"
         plt.title(title, fontsize=9)
         plt.axis("equal")
@@ -561,9 +816,19 @@ else:
     print("\nGenerating samples...")
     
     if config["noise_scheduler"] == "ddim":
+        noise_scheduler = DDIMScheduler(
+                num_train_timesteps=config["num_train_steps"],
+                beta_schedule="linear",
+                prediction_type="epsilon" # We predict noise
+            )
         print(f"Using DDIM sampling with {config['num_ddim_inference_steps']} steps.")
         samples = ddim_sample_with_diffusers(model, noise_scheduler)
     else:
+        noise_scheduler = DDPMScheduler(
+                num_train_timesteps=config["num_train_steps"],
+                beta_schedule="linear",
+                prediction_type="epsilon" # We predict noise
+            )
         samples = ddpm_sample_with_diffusers(model, noise_scheduler)
     
     # Quick evaluation
@@ -572,7 +837,7 @@ else:
     print(f"Frechet Distance: {metrics['frechet_distance']:.6f}")
     print(f"Coverage (threshold=0.05): {metrics['coverage']:.4f}")
     print(f"MMD (Mean Min Distance): {metrics['mmd']:.6f}")
-    print(f"Outside Parallelogram: {metrics['out_of_manifold_geometric_ratio']*100:.2f}%")
+    print(f"Mean Reward: {metrics['rewards_mean']:.4f}")
 
 # ==========================================
 # 5. Simple Visualization (non-eval mode)
@@ -608,3 +873,280 @@ if not config["run_eval"]:
     print(f"\nVisualization saved to {filename}")
 
 print(f"\nCheckpoint saved to {checkpoint_file}")
+
+# ==========================================
+# 6. RL Fine-tuning (REINFORCE + DDPM Regularization)
+# ==========================================
+
+if config["run_rl"]:
+    print("\n" + "="*60)
+    print("RL Fine-tuning")
+    print("="*60)
+    
+    noise_scheduler = DDIMScheduler(
+        num_train_timesteps=config["num_train_steps"],
+        beta_schedule="linear",
+        prediction_type="epsilon" # We predict noise
+    )
+
+    # Setup RL checkpoint directory
+    rl_checkpoint_path = Path(config["rl_checkpoint_dir"])
+    rl_checkpoint_path.mkdir(parents=True, exist_ok=True)
+    rl_checkpoint_file = rl_checkpoint_path / "model_checkpoint_rl.pt"
+    
+    # Load base model for RL fine-tuning
+    if config["rl_load_from_checkpoint"] is not None:
+        rl_load_path = Path(config["rl_load_from_checkpoint"])
+        print(f"Loading checkpoint for RL from {rl_load_path}")
+        checkpoint = torch.load(rl_load_path, map_location=device)
+        model.load_state_dict(checkpoint['model_state_dict'])
+        print("Base model loaded for RL fine-tuning")
+    else:
+        print("Using current model state for RL fine-tuning")
+    
+    # Create separate optimizer for RL
+    rl_optimizer = torch.optim.AdamW(model.parameters(), lr=config["rl_lr"])
+    
+    # Learning rate scheduler for RL with warmup
+    warmup_epochs = int(0.1 * config["rl_num_epochs"])  # 10% warmup
+    
+    # Warmup scheduler: linearly increase LR from 0 to target LR
+    warmup_scheduler = torch.optim.lr_scheduler.LinearLR(
+        rl_optimizer,
+        start_factor=0.01,  # Start from 1% of lr
+        end_factor=1.0,     # End at 100% of lr
+        total_iters=warmup_epochs
+    )
+    
+    # After warmup, keep LR nearly constant with very gentle decay
+    # Cosine annealing with eta_min=0.95 means LR only drops to 95% of target
+    cosine_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        rl_optimizer,
+        T_max=config["rl_num_epochs"] - warmup_epochs,
+        eta_min=config["rl_lr"] * 0.95  # Only decrease to 95% of target LR
+    )
+    
+    # Chain warmup and gentle cosine annealing
+    rl_scheduler = torch.optim.lr_scheduler.SequentialLR(
+        rl_optimizer,
+        schedulers=[warmup_scheduler, cosine_scheduler],
+        milestones=[warmup_epochs]
+    )
+    
+    # Tracking metrics for plotting
+    rl_metrics_history = {
+        'total_loss': [],
+        'reinforce_loss': [],
+        'ddpm_reg_loss': [],
+        'reward_mean': [],
+        'learning_rate': [],
+    }
+    
+    print(f"Starting RL training for {config['rl_num_epochs']} epochs...")
+    print(f"Batch size: {config['rl_batch_size']}, Inference steps: {config['rl_num_inference_steps']}")
+    print(f"DDPM regularization weight: {config['rl_ddpm_reg_weight']}")
+    print(f"LR Scheduler: Warmup ({warmup_epochs} epochs) → Gentle decay (1e-6 → {config['rl_lr'] * 0.95:.2e})")
+    
+    for rl_epoch in range(config["rl_num_epochs"]):
+        model.train()
+        
+        # ============ REINFORCE Loss ============
+        # Generate trajectories with log probs
+        trajectories, trajectories_log_probs = ddim_sample_with_log_probs(
+            model, 
+            noise_scheduler, 
+            n_samples=config["rl_batch_size"],
+            num_steps=config["rl_num_inference_steps"]
+        )
+        
+        # Compute rewards (per-sample)
+        x0 = trajectories[:, -1]
+        rewards = compute_geometric_reward(x0, V1, V2, X_MIN, X_MAX)
+        
+        # Calculate advantages
+        reward_mean = rewards.mean()
+        reward_std = rewards.std() + 1e-8
+        advantages = (rewards - reward_mean) / reward_std
+        advantages = torch.clamp(
+            advantages,
+            min=-config["rl_advantage_max"],
+            max=config["rl_advantage_max"]
+        )
+        
+        # REINFORCE loss: -log_prob * advantage
+        # REINFORCE loss
+        reinforce_loss = -torch.mean(torch.sum(trajectories_log_probs, dim=1) * advantages)
+        if config["rl_ddpm_reg_weight"] > 0.0:
+            # ============ DDPM Regularization Loss ============
+            # Sample random data points and timesteps for standard DDPM training
+            reg_batch_size = config["rl_batch_size"]
+            indices = torch.randint(0, len(X_train), (reg_batch_size,))
+            reg_batch_x = X_train[indices]
+            reg_noise = torch.randn_like(reg_batch_x)
+            reg_timesteps = torch.randint(
+                0, noise_scheduler.config.num_train_timesteps,
+                (reg_batch_size,), device=device
+            ).long()
+            
+            reg_noisy_x = noise_scheduler.add_noise(reg_batch_x, reg_noise, reg_timesteps)
+            reg_noise_pred = model(reg_noisy_x, reg_timesteps)
+            ddpm_reg_loss = F.mse_loss(reg_noise_pred, reg_noise)
+            
+            # ============ Combined Loss ============
+        else:
+            ddpm_reg_loss = torch.tensor(0.0, device=device)
+        total_loss = reinforce_loss + config["rl_ddpm_reg_weight"] * ddpm_reg_loss
+        
+        # Backprop and optimize
+        rl_optimizer.zero_grad()
+        total_loss.backward()
+        rl_optimizer.step()
+        rl_scheduler.step()
+        
+        # for name, param in model.named_parameters():
+        #     if param.grad is not None:
+        #         print(f"{name}: grad norm = {param.grad.norm().item():.6f}")
+        #     else:
+        #         print(f"{name}: NO GRADIENT!")
+                
+        # print(f"Reward stats: min={rewards.min():.3f}, max={rewards.max():.3f}, "
+        # f"positive_ratio={(rewards > 0).float().mean():.3f}")
+        
+        # Track metrics
+        current_lr = rl_scheduler.get_last_lr()[0]
+        rl_metrics_history['total_loss'].append(total_loss.item())
+        rl_metrics_history['reinforce_loss'].append(reinforce_loss.item())
+        rl_metrics_history['ddpm_reg_loss'].append(ddpm_reg_loss.item())
+        rl_metrics_history['reward_mean'].append(reward_mean.item())
+        rl_metrics_history['learning_rate'].append(current_lr)
+        
+        # Logging
+        if rl_epoch % 5 == 0 or rl_epoch == config["rl_num_epochs"] - 1:
+            with torch.no_grad():
+                print(f"RL Epoch {rl_epoch:03d} | "
+                      f"Total Loss: {total_loss.item():.6f} | "
+                      f"REINFORCE: {reinforce_loss.item():.6f} | "
+                      f"DDPM Reg: {ddpm_reg_loss.item():.6f} | "
+                      f"Reward: {reward_mean.item():.4f} | "
+                      f"LR: {current_lr:.2e}"
+                )
+    # Plot training curves
+    print("\nPlotting RL training curves...")
+    fig, axes = plt.subplots(2, 3, figsize=(18, 10))
+    fig.suptitle('RL Training Metrics', fontsize=16, fontweight='bold')
+    
+    epochs_range = range(len(rl_metrics_history['total_loss']))
+    
+    # Total Loss
+    axes[0, 0].plot(epochs_range, rl_metrics_history['total_loss'], 'b-', linewidth=2)
+    axes[0, 0].set_title('Total Loss', fontsize=12, fontweight='bold')
+    axes[0, 0].set_xlabel('Epoch')
+    axes[0, 0].set_ylabel('Loss')
+    axes[0, 0].grid(True, alpha=0.3)
+    
+    # REINFORCE Loss
+    axes[0, 1].plot(epochs_range, rl_metrics_history['reinforce_loss'], 'r-', linewidth=2)
+    axes[0, 1].set_title('REINFORCE Loss', fontsize=12, fontweight='bold')
+    axes[0, 1].set_xlabel('Epoch')
+    axes[0, 1].set_ylabel('Loss')
+    axes[0, 1].grid(True, alpha=0.3)
+    
+    # DDPM Regularization Loss
+    axes[0, 2].plot(epochs_range, rl_metrics_history['ddpm_reg_loss'], 'g-', linewidth=2)
+    axes[0, 2].set_title('DDPM Regularization Loss', fontsize=12, fontweight='bold')
+    axes[0, 2].set_xlabel('Epoch')
+    axes[0, 2].set_ylabel('Loss')
+    axes[0, 2].grid(True, alpha=0.3)
+    
+    # Reward Mean
+    axes[1, 0].plot(epochs_range, rl_metrics_history['reward_mean'], 'purple', linewidth=2)
+    axes[1, 0].axhline(y=0, color='k', linestyle='--', alpha=0.3)
+    axes[1, 0].set_title('Mean Reward', fontsize=12, fontweight='bold')
+    axes[1, 0].set_xlabel('Epoch')
+    axes[1, 0].set_ylabel('Reward')
+    axes[1, 0].grid(True, alpha=0.3)
+    
+    # Learning Rate
+    axes[1, 1].plot(epochs_range, rl_metrics_history['learning_rate'], 'orange', linewidth=2)
+    axes[1, 1].set_title('Learning Rate', fontsize=12, fontweight='bold')
+    axes[1, 1].set_xlabel('Epoch')
+    axes[1, 1].set_ylabel('Learning Rate')
+    axes[1, 1].set_yscale('log')
+    axes[1, 1].grid(True, alpha=0.3)
+    
+    # Combined view: Losses
+    axes[1, 2].plot(epochs_range, rl_metrics_history['total_loss'], 'b-', linewidth=2, label='Total', alpha=0.7)
+    axes[1, 2].plot(epochs_range, rl_metrics_history['reinforce_loss'], 'r-', linewidth=2, label='REINFORCE', alpha=0.7)
+    axes[1, 2].plot(epochs_range, rl_metrics_history['ddpm_reg_loss'], 'g-', linewidth=2, label='DDPM Reg', alpha=0.7)
+    axes[1, 2].set_title('All Losses Combined', fontsize=12, fontweight='bold')
+    axes[1, 2].set_xlabel('Epoch')
+    axes[1, 2].set_ylabel('Loss')
+    axes[1, 2].legend(loc='best', fontsize=9)
+    axes[1, 2].grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    training_curves_path = rl_checkpoint_path / "rl_training_curves.png"
+    plt.savefig(training_curves_path, dpi=150, bbox_inches='tight')
+    print(f"✓ RL training curves saved to {training_curves_path}")
+    plt.close()
+    
+    # Save RL checkpoint
+    print(f"\nSaving RL checkpoint to {rl_checkpoint_file}")
+    torch.save({
+        'epoch': config['rl_num_epochs'] - 1,
+        'model_state_dict': model.state_dict(),
+        'optimizer_state_dict': rl_optimizer.state_dict(),
+        'scheduler_state_dict': rl_scheduler.state_dict(),
+        'metrics_history': rl_metrics_history,
+        'config': config,
+    }, rl_checkpoint_file)
+    print("RL Checkpoint saved.")
+    
+    # Evaluate RL model
+    print("\n" + "="*60)
+    print("Evaluating RL Fine-tuned Model")
+    print("="*60)
+    
+    model.eval()
+    with torch.no_grad():
+        rl_samples = ddim_sample_with_diffusers(
+            model, noise_scheduler,
+            n_samples=10000,
+            num_steps=config["rl_num_inference_steps"]
+        )
+    
+    rl_metrics = evaluate_samples(X_train[:10000], rl_samples)
+    print(f"RL Model - Frechet Distance: {rl_metrics['frechet_distance']:.6f}")
+    print(f"RL Model - Coverage: {rl_metrics['coverage']:.4f}")
+    print(f"RL Model - MMD: {rl_metrics['mmd']:.6f}")
+    print(f"RL Model - Mean Reward: {rl_metrics['rewards_mean']:.4f}")
+    
+    
+    # Visualization
+    plt.figure(figsize=(12, 6))
+    
+    plt.subplot(1, 2, 1)
+    orig_data = X_train[:5000].cpu().numpy()
+    plt.scatter(orig_data[:, 0], orig_data[:, 1], s=1, alpha=0.5, c='blue')
+    plt.plot(PARALLELOGRAM_CORNERS[:, 0], PARALLELOGRAM_CORNERS[:, 1],
+             'k-', linewidth=2, label='Pretrained Manifold')
+    plt.title("Ground Truth")
+    plt.axis("equal")
+    plt.grid(True, alpha=0.3)
+    plt.legend()
+    
+    plt.subplot(1, 2, 2)
+    plt.scatter(rl_samples[:5000, 0], rl_samples[:5000, 1], s=1, alpha=0.5, c='green')
+    plt.plot(PARALLELOGRAM_CORNERS[:, 0], PARALLELOGRAM_CORNERS[:, 1],
+             'k-', linewidth=2, label='Pretrained Manifold')
+    plt.plot(rectangle_corners[:, 0], rectangle_corners[:, 1], '-', color='orange', linewidth=2, label='RL reward Manifold')
+    plt.axis("equal")
+    plt.grid(True, alpha=0.3)
+    plt.legend()
+    
+    plt.tight_layout()
+    rl_viz_path = rl_checkpoint_path / "rl_result.png"
+    plt.savefig(rl_viz_path)
+    print(f"\n✓ RL visualization saved to {rl_viz_path}")
+    
+    print("="*60)
