@@ -14,23 +14,28 @@ import time
 from typing import Optional, Tuple
 from diffusers.utils.torch_utils import randn_tensor
 
+name = "only_2_steps"
 
 config = {
+
+    # "load": "/media/ajad/YourBook/AshokSaugatResearchBackup/AshokSaugatResearch/toy_parallelogram/outputs/only_3_steps/ckpt_toy_rl/model_checkpoint_rl_epoch_4000.pt",
+    "load": "/media/ajad/YourBook/AshokSaugatResearchBackup/AshokSaugatResearch/toy_parallelogram/outputs/only_2_steps/ckpt_toy_rl/model_checkpoint_rl_epoch_20000.pt",
+    # "load": None,
     "noise_scheduler": "ddim", #or ddpm
     "num_train_steps": 40,
     "num_ddim_inference_steps": 10,
-    "checkpoint_dir": "outputs/rect_pretraining_40_rl_40/ckpt_toy",
+    "checkpoint_dir": f"outputs/{name}/ckpt_toy",
     "skip_training_if_ckpt_exists": True,
-    "run_eval": True,  # Set to True to run comprehensive evaluation
+    "run_eval": True,  # when set true ckpt even if trained on the fly is not saved (also load should be not none # Set to True to run comprehensive evaluation
     
     # RL Fine-tuning config
-    "run_rl": True,  # Set to True to run RL fine-tuning
-    "rl_checkpoint_dir": "outputs/rect_pretraining_40_rl_40/ckpt_toy_rl",
-    "rl_load_from_checkpoint": None,  # Path to checkpoint to fine-tune from (or None to use base checkpoint)
-    "rl_num_epochs": 10000,
-    "save_every": 1000,
+    "run_rl": False,  # Set to True to run RL fine-tuning
+    "rl_checkpoint_dir": f"outputs/{name}/ckpt_toy_rl",
+    "rl_load_from_checkpoint": "/media/ajad/YourBook/AshokSaugatResearchBackup/AshokSaugatResearch/toy_parallelogram/outputs/rect_pretraining_40_rl_40/ckpt_toy/model_checkpoint.pt",  # Path to checkpoint to fine-tune from (or None to use base checkpoint)
+    "rl_num_epochs": 4000,
+    "save_every": 500,
     "rl_batch_size": 512,
-    "rl_num_inference_steps": 40,
+    "rl_num_inference_steps": 2, #can not have 5 for eval for some reason, # FIXME:
     "rl_lr": 1e-6,
     "rl_ddpm_reg_weight": 0.0,  # Weight for DDPM regularization loss
     "rl_advantage_max": 10.0,  # Clipping for advantages
@@ -299,6 +304,52 @@ def check_points_in_rectangle(points, rect_bounds):
     
     return inside
 
+def compute_rectangle_grid_coverage(points, rect_bounds, grid_size=10):
+    """
+    Compute grid cell coverage for rectangle to detect reward hacking.
+    Measures what percentage of grid cells contain at least one point.
+    
+    Args:
+        points: Generated samples (N, 2) - can be numpy or torch
+        rect_bounds: Tuple of (x_min_rect, x_max_rect, y_min_rect, y_max_rect)
+        grid_size: Number of cells per dimension (grid_size x grid_size grid)
+        
+    Returns:
+        coverage: Percentage of cells with at least one point (0 to 1)
+    """
+    # Convert to numpy if torch tensor
+    if torch.is_tensor(points):
+        points = points.detach().cpu().numpy()
+    
+    # Filter to only points inside rectangle
+    inside_mask = check_points_in_rectangle(points, rect_bounds)
+    points_inside = points[inside_mask]
+    
+    if len(points_inside) == 0:
+        return 0.0
+    
+    # Unpack bounds
+    x_min, x_max, y_min, y_max = rect_bounds
+    
+    # Create grid
+    x_bins = np.linspace(x_min, x_max, grid_size + 1)
+    y_bins = np.linspace(y_min, y_max, grid_size + 1)
+    
+    # Compute 2D histogram
+    hist, _, _ = np.histogram2d(
+        points_inside[:, 0], 
+        points_inside[:, 1], 
+        bins=[x_bins, y_bins]
+    )
+    
+    # Count cells with at least one point
+    occupied_cells = np.sum(hist > 0)
+    total_cells = grid_size * grid_size
+    
+    coverage = occupied_cells / total_cells
+    
+    return coverage
+
 def compute_geometric_reward(samples, v1, v2, x_min, x_max):
     rect_bounds = RECT_BOUNDS
     inside = check_points_in_rectangle(samples, rect_bounds)
@@ -337,6 +388,13 @@ def evaluate_samples(real_samples, generated_samples):
     rewards = compute_geometric_reward(
         torch.tensor(generated_samples[:n_eval], device=device), V1, V2, X_MIN, X_MAX
     )
+    
+    # Rectangle grid coverage (detects reward hacking/center clustering)
+    rectangle_coverage = compute_rectangle_grid_coverage(
+        generated_samples[:n_eval], 
+        RECT_BOUNDS, 
+        grid_size=10
+    )
 
     
     return {
@@ -344,6 +402,7 @@ def evaluate_samples(real_samples, generated_samples):
         'coverage': coverage,
         'mmd': mmd,
         'rewards_mean': rewards.mean().item(),
+        'rectangle_coverage': rectangle_coverage,
     }
 
 # ==========================================
@@ -370,6 +429,8 @@ checkpoint_path = Path(config["checkpoint_dir"])
 checkpoint_path.mkdir(parents=True, exist_ok=True)
 checkpoint_file = checkpoint_path / "model_checkpoint.pt"
 
+if config["load"] is not None:
+    checkpoint_file = Path(config["load"])
 start_epoch = 0
 num_epochs = 100
 
@@ -384,6 +445,8 @@ if checkpoint_file.exists() and config["skip_training_if_ckpt_exists"]:
     if start_epoch >= num_epochs:
         print("Training already completed. Skipping training.")
         num_epochs = start_epoch  # Skip training loop
+elif config["rl_load_from_checkpoint"] is not None:
+    start_epoch = num_epochs + 1  # Skip training loop
 else:
     print(f"Training on {device} using Diffusers library...")
 for epoch in range(start_epoch, num_epochs):
@@ -419,15 +482,16 @@ for epoch in range(start_epoch, num_epochs):
         avg_loss = epoch_loss / len(dataloader)
         print(f"Epoch {epoch:03d} | Loss: {avg_loss:.6f}")
 
-# Save final checkpoint
-if start_epoch < num_epochs:
-    print(f"Saving checkpoint to {checkpoint_file}")
-    torch.save({
-        'epoch': num_epochs - 1,
-        'model_state_dict': model.state_dict(),
-        'optimizer_state_dict': optimizer.state_dict(),
-    }, checkpoint_file)
-    print("Checkpoint saved.")
+if not config["run_eval"] and config["load"] is not None:
+    # Save final checkpoint
+    if start_epoch < num_epochs:
+        print(f"Saving checkpoint to {checkpoint_file}")
+        torch.save({
+            'epoch': num_epochs - 1,
+            'model_state_dict': model.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+        }, checkpoint_file)
+        print("Checkpoint saved.")
 
 # ==========================================
 # 4. Sampling with Diffusers Library
@@ -689,14 +753,23 @@ if config["run_eval"]:
     print("="*60)
     
     # Define evaluation configurations
+    # eval_configs = [
+    #     {"scheduler": "ddpm", "steps": config["num_train_steps"], "name": f"DDPM-{config['num_train_steps']}"},
+    #     {"scheduler": "ddim", "steps": config["rl_num_inference_steps"]//10, "name": f"DDIM-{config['rl_num_inference_steps']//10}"},
+    #     {"scheduler": "ddim", "steps": config["rl_num_inference_steps"]//8, "name": f"DDIM-{config['rl_num_inference_steps']//8}"},
+    #     {"scheduler": "ddim", "steps": config["rl_num_inference_steps"]//2, "name": f"DDIM-{config['rl_num_inference_steps']//2}"},
+    #     {"scheduler": "ddim", "steps": config["rl_num_inference_steps"], "name": f"DDIM-{config['rl_num_inference_steps']}"},
+    # ]
     eval_configs = [
-        {"scheduler": "ddpm", "steps": config["num_train_steps"], "name": f"DDPM-{config['num_train_steps']}"},
-        {"scheduler": "ddim", "steps": config["rl_num_inference_steps"]//10, "name": f"DDIM-{config['rl_num_inference_steps']//10}"},
-        {"scheduler": "ddim", "steps": config["rl_num_inference_steps"]//8, "name": f"DDIM-{config['rl_num_inference_steps']//8}"},
-        {"scheduler": "ddim", "steps": config["rl_num_inference_steps"]//2, "name": f"DDIM-{config['rl_num_inference_steps']//2}"},
-        {"scheduler": "ddim", "steps": config["rl_num_inference_steps"], "name": f"DDIM-{config['rl_num_inference_steps']}"},
-    ]
-    
+        {"scheduler": "ddpm", "steps": 40, "name": f"DDPM-40"},
+        {"scheduler": "ddim", "steps": 2, "name": f"DDIM-2"},
+        {"scheduler": "ddim", "steps": 3, "name": f"DDIM-3"},
+        {"scheduler": "ddim", "steps": 5, "name": f"DDIM-5"},
+        {"scheduler": "ddim", "steps": 10, "name": f"DDIM-10"},
+        {"scheduler": "ddim", "steps": 15, "name": f"DDIM-15"},
+        {"scheduler": "ddim", "steps": 20, "name": f"DDIM-20"},
+        {"scheduler": "ddim", "steps": 40, "name": f"DDIM-40"},   
+    ] 
     results = []
     all_samples = {}
     
@@ -743,6 +816,7 @@ if config["run_eval"]:
             'coverage': metrics['coverage'],
             'mmd': metrics['mmd'],
             "mean_reward": metrics['rewards_mean'],
+            'rectangle_coverage': metrics['rectangle_coverage'],
             'sampling_time_sec': sampling_time,
         })
         
@@ -753,6 +827,7 @@ if config["run_eval"]:
               f"Coverage: {metrics['coverage']:.4f} | "
               f"MMD: {metrics['mmd']:.6f} | "
               f"Mean Reward: {metrics['rewards_mean']:.4f} | "
+              f"Rect Coverage: {metrics['rectangle_coverage']:.4f} | "
               f"Time: {sampling_time:.2f}s")
     
     # Save results to CSV
@@ -787,11 +862,13 @@ if config["run_eval"]:
         plt.plot(PARALLELOGRAM_CORNERS[:, 0], PARALLELOGRAM_CORNERS[:, 1], 
                  'k-', linewidth=1.5, alpha=0.7)
         
+        plt.plot(rectangle_corners[:, 0], rectangle_corners[:, 1], '-', color='orange', linewidth=2, label='RL reward Manifold')
+        
         # Get metrics for title
         row = df_results[df_results['name'] == eval_cfg['name']].iloc[0]
         title = f"{eval_cfg['name']}\n"
         title += f"FD: {row['frechet_distance']:.3f} | Cov: {row['coverage']:.3f}\n"
-        title += f"Mean Reward: {row['mean_reward']:.4f} | "
+        title += f"Reward: {row['mean_reward']:.3f} | RectCov: {row['rectangle_coverage']:.3f}\n"
         title += f"{row['sampling_time_sec']:.1f}s"
         plt.title(title, fontsize=9)
         plt.axis("equal")
@@ -836,6 +913,7 @@ else:
     print(f"Coverage (threshold=0.05): {metrics['coverage']:.4f}")
     print(f"MMD (Mean Min Distance): {metrics['mmd']:.6f}")
     print(f"Mean Reward: {metrics['rewards_mean']:.4f}")
+    print(f"Rectangle Coverage: {metrics['rectangle_coverage']:.4f}")
 
 # ==========================================
 # 5. Simple Visualization (non-eval mode)
@@ -870,13 +948,14 @@ if not config["run_eval"]:
     plt.savefig(filename)
     print(f"\nVisualization saved to {filename}")
 
-print(f"\nCheckpoint saved to {checkpoint_file}")
 
 # ==========================================
 # 6. RL Fine-tuning (REINFORCE + DDPM Regularization)
 # ==========================================
 
 if config["run_rl"]:
+    start_time = time.time()
+
     print("\n" + "="*60)
     print("RL Fine-tuning")
     print("="*60)
@@ -1133,6 +1212,7 @@ if config["run_rl"]:
     print(f"RL Model - Coverage: {rl_metrics['coverage']:.4f}")
     print(f"RL Model - MMD: {rl_metrics['mmd']:.6f}")
     print(f"RL Model - Mean Reward: {rl_metrics['rewards_mean']:.4f}")
+    print(f"RL Model - Rectangle Coverage: {rl_metrics['rectangle_coverage']:.4f}")
     
     
     # Visualization
@@ -1163,3 +1243,7 @@ if config["run_rl"]:
     print(f"\n✓ RL visualization saved to {rl_viz_path}")
     
     print("="*60)
+    
+    
+
+    print(f"Total time taken for RL: {time.time() - start_time:.2f} seconds")

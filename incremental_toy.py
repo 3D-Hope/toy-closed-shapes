@@ -17,22 +17,22 @@ from diffusers.utils.torch_utils import randn_tensor
 name = "incremental_toy_experiment_5_10_40"
 
 config = {
-    "load": "/media/ajad/YourBook/AshokSaugatResearchBackup/AshokSaugatResearch/toy_parallelogram/outputs/incremental_toy_experiment_5_10_40/ckpt_toy_rl/model_checkpoint_rl_epoch_6000.pt",
+    "load": None,
     "noise_scheduler": "ddim", #or ddpm
-    "num_train_steps": 40,
+    "num_train_steps": 1000,
     "num_ddim_inference_steps": 10,
     "checkpoint_dir": f"outputs/{name}/ckpt_toy",
     "skip_training_if_ckpt_exists": True,
-    "run_eval": True,  # Set to True to run comprehensive evaluation
+    "run_eval": False,  # Set to True to run comprehensive evaluation
     
     # RL Fine-tuning config
-    "run_rl": False,  # Set to True to run RL fine-tuning
+    "run_rl": True,  # Set to True to run RL fine-tuning
     "rl_checkpoint_dir": f"outputs/{name}/ckpt_toy_rl",
-    "rl_load_from_checkpoint": None,  # Path to checkpoint to fine-tune from (or None to use base checkpoint)
-    "rl_num_epochs": 4000,
-    "save_every": 500,
+    "rl_load_from_checkpoint": "/media/ajad/YourBook/AshokSaugatResearchBackup/AshokSaugatResearch/toy_parallelogram/outputs/pretraining_1000_rl_150/ckpt_toy/model_checkpoint.pt",  # Path to checkpoint to fine-tune from (or None to use base checkpoint)
+    "rl_num_epochs": 100000,
+    "save_every": 1000,
     "rl_batch_size": 512,
-    "rl_num_inference_steps": 40,
+    "rl_num_inference_steps": 150,
     "rl_lr": 1e-6,
     "rl_ddpm_reg_weight": 0.0,  # Weight for DDPM regularization loss
     "rl_advantage_max": 10.0,  # Clipping for advantages
@@ -388,6 +388,8 @@ if checkpoint_file.exists() and config["skip_training_if_ckpt_exists"]:
     if start_epoch >= num_epochs:
         print("Training already completed. Skipping training.")
         num_epochs = start_epoch  # Skip training loop
+elif config["run_rl"] and config["rl_load_from_checkpoint"] is not None:
+    start_epoch = num_epochs + 1  # Skip training loop
 else:
     print(f"Training on {device} using Diffusers library...")
 for epoch in range(start_epoch, num_epochs):
@@ -791,6 +793,7 @@ if config["run_eval"]:
         plt.plot(PARALLELOGRAM_CORNERS[:, 0], PARALLELOGRAM_CORNERS[:, 1], 
                  'k-', linewidth=1.5, alpha=0.7)
         
+        plt.plot(rectangle_corners[:, 0], rectangle_corners[:, 1], '-', color='orange', linewidth=2, label='RL reward Manifold')
         # Get metrics for title
         row = df_results[df_results['name'] == eval_cfg['name']].iloc[0]
         title = f"{eval_cfg['name']}\n"
@@ -881,6 +884,7 @@ print(f"\nCheckpoint saved to {checkpoint_file}")
 # ==========================================
 
 if config["run_rl"]:
+    start_time = time.time()
     print("\n" + "="*60)
     print("RL Fine-tuning")
     print("="*60)
@@ -948,8 +952,9 @@ if config["run_rl"]:
     print(f"Batch size: {config['rl_batch_size']}, Inference steps: {config['rl_num_inference_steps']}")
     print(f"DDPM regularization weight: {config['rl_ddpm_reg_weight']}")
     print(f"LR Scheduler: Warmup ({warmup_epochs} epochs) → Gentle decay (1e-6 → {config['rl_lr'] * 0.95:.2e})")
-    increments = [5,10,15,20,25,30,35,40]
-    training_steps_per_increment = [500 for _ in increments]
+    # increments = [5,10,15,20,25,30,35,40]
+    increments = [10,20,30,40,50,60,70,80,90,100,110,120,130,140,150]
+    training_steps_per_increment = [5000 for _ in increments]
     cum_sum_steps = np.cumsum(training_steps_per_increment).tolist()
     min_denoising_steps = min(increments)
     max_denoising_steps = max(increments)
@@ -957,8 +962,8 @@ if config["run_rl"]:
     training_steps = 0
     
     def get_timesteps_for_inc_joint(n_timesteps):
-        n_inference_steps = 40
-        num_steps_total = 40
+        n_inference_steps = 150 # TODO: Make this a config param
+        num_steps_total = 1000
         step_ratio = num_steps_total//n_inference_steps
         timestep_150 =  (np.arange(0, n_inference_steps) * step_ratio).round()[::-1].copy().astype(np.int64)
 
@@ -1199,3 +1204,4 @@ if config["run_rl"]:
     print(f"\n✓ RL visualization saved to {rl_viz_path}")
     
     print("="*60)
+    print(f"Total time taken for RL: {time.time() - start_time:.2f} seconds")
