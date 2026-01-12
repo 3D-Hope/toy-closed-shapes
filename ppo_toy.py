@@ -14,7 +14,7 @@ import time
 from typing import Optional, Tuple
 from diffusers.utils.torch_utils import randn_tensor
 
-name = "2_step_rl_ppo"
+name = "40_step_rl_ppo"
 
 config = {
 
@@ -37,7 +37,7 @@ config = {
     "inner_epochs": 5,
     "save_every": 1000,
     "rl_batch_size": 512,
-    "rl_num_inference_steps": 2, #can not have 5 for eval for some reason, # FIXME:
+    "rl_num_inference_steps": 40, #can not have 5 for eval for some reason, # FIXME:
     "rl_lr": 1e-6,
     "rl_ddpm_reg_weight": 0.0,  # Weight for DDPM regularization loss
     "rl_advantage_max": 10.0,  # Clipping for advantages
@@ -498,6 +498,31 @@ if not config["run_eval"] and config["load"] is not None:
 # ==========================================
 # 4. Sampling with Diffusers Library
 # ==========================================
+
+def _left_broadcast(t, shape):
+    """Broadcast tensor t to shape by adding dimensions on the right."""
+    assert t.ndim <= len(shape)
+    return t.reshape(t.shape + (1,) * (len(shape) - t.ndim)).broadcast_to(shape)
+
+
+def _get_variance(scheduler, timestep, prev_timestep):
+    """Compute variance for batched timesteps."""
+    alpha_prod_t = torch.gather(scheduler.alphas_cumprod, 0, timestep.cpu()).to(
+        timestep.device
+    )
+    alpha_prod_t_prev = torch.where(
+        prev_timestep.cpu() >= 0,
+        scheduler.alphas_cumprod.gather(0, prev_timestep.cpu()),
+        scheduler.final_alpha_cumprod,
+    ).to(timestep.device)
+    beta_prod_t = 1 - alpha_prod_t
+    beta_prod_t_prev = 1 - alpha_prod_t_prev
+
+    variance = (beta_prod_t_prev / beta_prod_t) * (1 - alpha_prod_t / alpha_prod_t_prev)
+
+    return variance
+
+
 def ddim_step_with_logprob(
     scheduler: DDIMScheduler,
     model_output: torch.FloatTensor,
@@ -570,19 +595,19 @@ def ddim_step_with_logprob(
     prev_timestep = (
         timestep - scheduler.config.num_train_timesteps // scheduler.num_inference_steps
     )
+    # to prevent OOB on gather
+    prev_timestep = torch.clamp(prev_timestep, 0, scheduler.config.num_train_timesteps - 1)
 
-    # 2. compute alphas, betas
-    # Move scheduler tensors to device if needed
-    device = sample.device
-    alphas_cumprod = scheduler.alphas_cumprod.to(device)
-    final_alpha_cumprod = scheduler.final_alpha_cumprod.to(device)
-    
-    alpha_prod_t = alphas_cumprod[timestep]
-    alpha_prod_t_prev = (
-        alphas_cumprod[prev_timestep]
-        if prev_timestep >= 0
-        else final_alpha_cumprod
+    # 2. compute alphas, betas using gather for batched timesteps
+    alpha_prod_t = scheduler.alphas_cumprod.gather(0, timestep.cpu())
+    alpha_prod_t_prev = torch.where(
+        prev_timestep.cpu() >= 0,
+        scheduler.alphas_cumprod.gather(0, prev_timestep.cpu()),
+        scheduler.final_alpha_cumprod,
     )
+    # Broadcast to sample shape and move to device
+    alpha_prod_t = _left_broadcast(alpha_prod_t, sample.shape).to(sample.device)
+    alpha_prod_t_prev = _left_broadcast(alpha_prod_t_prev, sample.shape).to(sample.device)
 
     beta_prod_t = 1 - alpha_prod_t
 
@@ -621,8 +646,9 @@ def ddim_step_with_logprob(
 
     # 5. compute variance: "sigma_t(η)" -> see formula (16)
     # σ_t = sqrt((1 − α_t−1)/(1 − α_t)) * sqrt(1 − α_t/α_t−1)
-    variance = scheduler._get_variance(timestep, prev_timestep)
+    variance = _get_variance(scheduler, timestep, prev_timestep)
     std_dev_t = eta * variance ** (0.5)
+    std_dev_t = _left_broadcast(std_dev_t, sample.shape).to(sample.device)
 
     if use_clipped_model_output:
         # the pred_epsilon is always re-derived from the clipped x_0 in Glide
@@ -662,7 +688,7 @@ def ddim_step_with_logprob(
     log_prob = (
         -((prev_sample.detach() - prev_sample_mean) ** 2) / (2 * (std_dev_t**2))
         - torch.log(std_dev_t)
-        - torch.log(torch.sqrt(2 * torch.as_tensor(math.pi, device=std_dev_t.device)))
+        - torch.log(torch.sqrt(2 * torch.as_tensor(math.pi, device=sample.device)))
     )
     
     # Apply mask if provided: zero out log prob for masked (frozen) elements
@@ -673,7 +699,7 @@ def ddim_step_with_logprob(
     # log probability as the individual elements of xt are independent.
     log_prob = log_prob.mean(dim=tuple(range(1, log_prob.ndim)))
 
-    return prev_sample, log_prob
+    return prev_sample.type(sample.dtype), log_prob
 
 @torch.no_grad()
 def ddpm_sample_with_diffusers(model, scheduler, n_samples=10000, num_steps=None):
@@ -1171,9 +1197,9 @@ if config["run_rl"]:
                         # ppo logic
 
                     ratio = torch.exp(log_prob - sample["log_probs"][:, j])
-                    unclipped_loss = -advantages * ratio
+                    unclipped_loss = -sample["advantages"] * ratio
                     clip_range = 1e-4
-                    clipped_loss = -advantages * torch.clamp(
+                    clipped_loss = -sample["advantages"] * torch.clamp(
                         ratio,
                         1.0 - clip_range,
                         1.0 + clip_range,
@@ -1228,6 +1254,8 @@ if config["run_rl"]:
                     if rl_epoch % 5 == 0 or rl_epoch == config["rl_num_epochs"] - 1:
                         with torch.no_grad():
                             print(f"RL Epoch {rl_epoch:03d} | "
+                                f"RL Inner Epoch {inner_epoch:03d} | "
+                                f"Inner Epoch Step {j+1:03d} | "
                                 f"Total Loss: {total_loss.item():.6f} | "
                                 f"REINFORCE: {ppo_loss.item():.6f} | "
                                 f"DDPM Reg: {ddpm_reg_loss.item():.6f} | "
