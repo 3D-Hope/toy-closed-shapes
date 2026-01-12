@@ -14,16 +14,17 @@ import time
 from typing import Optional, Tuple
 from diffusers.utils.torch_utils import randn_tensor
 
-name = "only_2_steps"
+name = "only_2_steps_ring_around_boundary_reg_0.0"
 
 config = {
 
+    "load": None,
+    # "load": "/media/ajad/YourBook/AshokSaugatResearchBackup/AshokSaugatResearch/toy_parallelogram/outputs/only_2_steps_ring_around_boundary_reg_0.0/ckpt_toy_rl/model_checkpoint_rl.pt",
     # "load": "/media/ajad/YourBook/AshokSaugatResearchBackup/AshokSaugatResearch/toy_parallelogram/outputs/only_3_steps/ckpt_toy_rl/model_checkpoint_rl_epoch_4000.pt",
-    "load": "/media/ajad/YourBook/AshokSaugatResearchBackup/AshokSaugatResearch/toy_parallelogram/outputs/only_2_steps/ckpt_toy_rl/model_checkpoint_rl_epoch_20000.pt",
-    # "load": None,
+    "load": "/media/ajad/YourBook/AshokSaugatResearchBackup/AshokSaugatResearch/toy_parallelogram/outputs/rect_pretraining_40_rl_40/ckpt_toy/model_checkpoint.pt", #baseline
     "noise_scheduler": "ddim", #or ddpm
     "num_train_steps": 40,
-    "num_ddim_inference_steps": 10,
+    "num_ddim_inference_steps": 40,
     "checkpoint_dir": f"outputs/{name}/ckpt_toy",
     "skip_training_if_ckpt_exists": True,
     "run_eval": True,  # when set true ckpt even if trained on the fly is not saved (also load should be not none # Set to True to run comprehensive evaluation
@@ -31,14 +32,17 @@ config = {
     # RL Fine-tuning config
     "run_rl": False,  # Set to True to run RL fine-tuning
     "rl_checkpoint_dir": f"outputs/{name}/ckpt_toy_rl",
-    "rl_load_from_checkpoint": "/media/ajad/YourBook/AshokSaugatResearchBackup/AshokSaugatResearch/toy_parallelogram/outputs/rect_pretraining_40_rl_40/ckpt_toy/model_checkpoint.pt",  # Path to checkpoint to fine-tune from (or None to use base checkpoint)
+    "rl_load_from_checkpoint": None,  # Path to checkpoint to fine-tune from (or None to use base checkpoint)
     "rl_num_epochs": 4000,
-    "save_every": 500,
+    "save_every": 1000,
     "rl_batch_size": 512,
     "rl_num_inference_steps": 2, #can not have 5 for eval for some reason, # FIXME:
     "rl_lr": 1e-6,
     "rl_ddpm_reg_weight": 0.0,  # Weight for DDPM regularization loss
     "rl_advantage_max": 10.0,  # Clipping for advantages
+    "reward_type": "ring",  # "rectangle", "circles", or "ring" - choose reward function
+    "ring_inner_distance": 0.5,  # For ring reward: inner distance threshold)
+    "ring_outer_distance": 0.3,  # For ring reward: reward points within this distance from boundary
 }
 
 # config = {
@@ -184,6 +188,114 @@ def get_parallelogram_corners_normalized(v1, v2, x_min, x_max):
     return corners_normalized
 
 PARALLELOGRAM_CORNERS = get_parallelogram_corners_normalized(V1, V2, X_MIN, X_MAX)
+
+def get_offset_parallelogram_normalized(v1, v2, x_min, x_max, offset_distance):
+    """Get corners of a parallelogram offset outward by a given distance.
+    
+    Args:
+        v1, v2: Basis vectors of the parallelogram
+        x_min, x_max: Normalization parameters
+        offset_distance: Distance to offset outward from each edge (positive = outward, negative = inward)
+        
+    Returns:
+        Array of corners in normalized space
+    """
+    # Original corners: [0,0], v1, v1+v2, v2
+    # We need to offset each of the 4 edges outward by offset_distance
+    
+    # Compute outward normals for each edge
+    # Edge 0->v1 (bottom edge)
+    edge_01 = v1
+    normal_01 = np.array([-edge_01[1], edge_01[0]])
+    normal_01 = normal_01 / np.linalg.norm(normal_01)
+    
+    # Edge v1->v1+v2 (right edge)
+    edge_12 = v2
+    normal_12 = np.array([-edge_12[1], edge_12[0]])
+    normal_12 = normal_12 / np.linalg.norm(normal_12)
+    
+    # Edge v1+v2->v2 (top edge)
+    edge_23 = -v1
+    normal_23 = np.array([-edge_23[1], edge_23[0]])
+    normal_23 = normal_23 / np.linalg.norm(normal_23)
+    
+    # Edge v2->0 (left edge)
+    edge_30 = -v2
+    normal_30 = np.array([-edge_30[1], edge_30[0]])
+    normal_30 = normal_30 / np.linalg.norm(normal_30)
+    
+    # Check if normals point outward (cross product with edge should be positive for CCW)
+    # For outward normal, it should point away from center
+    center = (v1 + v2) / 2
+    
+    # Check each normal and flip if needed
+    if np.dot(normal_01, center - v1/2) > 0:
+        normal_01 = -normal_01
+    if np.dot(normal_12, center - (v1 + v2/2)) > 0:
+        normal_12 = -normal_12
+    if np.dot(normal_23, center - (v2 + v1/2)) > 0:
+        normal_23 = -normal_23
+    if np.dot(normal_30, center - v2/2) > 0:
+        normal_30 = -normal_30
+    
+    # Offset each edge and find new corner intersections
+    # New corner 0: intersection of offset edge_30 and edge_01
+    # Offset edge_30: starts at v2 + normal_30 * offset_distance, direction -v2
+    # Offset edge_01: starts at 0 + normal_01 * offset_distance, direction v1
+    
+    # Solve for intersection using parametric equations
+    # Point on offset_30: (v2 + normal_30 * d) + t * (-v2)
+    # Point on offset_01: (normal_01 * d) + s * v1
+    # These are equal at intersection
+    
+    d = offset_distance
+    
+    # Corner 0: intersection of offset bottom and left edges
+    # Parametric: normal_01 * d + s * v1 = v2 + normal_30 * d + t * (-v2)
+    # s * v1 + t * v2 = v2 + normal_30 * d - normal_01 * d
+    # Solve: [v1, v2] * [s, t]' = v2 + d * (normal_30 - normal_01)
+    M = np.column_stack([v1, v2])
+    rhs = v2 + d * (normal_30 - normal_01)
+    params = np.linalg.solve(M, rhs)
+    corner_0 = normal_01 * d + params[0] * v1
+    
+    # Corner 1: intersection of offset bottom and right edges  
+    # normal_01 * d + s * v1 = v1 + normal_12 * d + t * v2
+    rhs = v1 + d * (normal_12 - normal_01)
+    params = np.linalg.solve(M, rhs)
+    corner_1 = normal_01 * d + params[0] * v1
+    
+    # Corner 2: intersection of offset right and top edges
+    # v1 + normal_12 * d + s * v2 = v1 + v2 + normal_23 * d + t * (-v1)
+    # v1 + normal_12 * d + s * v2 = v1 + v2 + normal_23 * d - t * v1
+    # t * v1 + s * v2 = v2 + d * (normal_23 - normal_12)
+    rhs = v2 + d * (normal_23 - normal_12)
+    params = np.linalg.solve(M, rhs)
+    corner_2 = v1 + normal_12 * d + params[1] * v2
+    
+    # Corner 3: intersection of offset top and left edges
+    # v1 + v2 + normal_23 * d + s * (-v1) = v2 + normal_30 * d + t * (-v2)
+    # v1 + v2 + normal_23 * d - s * v1 = v2 + normal_30 * d - t * v2
+    # s * v1 - t * v2 = v1 + d * (normal_23 - normal_30)
+    # [v1, -v2] * [s, t]' = v1 + d * (normal_23 - normal_30)
+    M2 = np.column_stack([v1, -v2])
+    rhs = v1 + d * (normal_23 - normal_30)
+    params = np.linalg.solve(M2, rhs)
+    corner_3 = v1 + v2 + normal_23 * d - params[0] * v1
+    
+    corners_original = np.array([
+        corner_0,
+        corner_1,
+        corner_2,
+        corner_3,
+        corner_0  # Close the loop
+    ])
+    
+    # Normalize to [-1, 1] (same as data normalization)
+    corners_normalized = 2 * (corners_original - x_min) / (x_max - x_min) - 1
+    
+    return corners_normalized
+
 RECT_BOUNDS = (-0.5, 0.5, -0.5, 0.5)
 
 x_min_rect, x_max_rect, y_min_rect, y_max_rect = RECT_BOUNDS
@@ -195,6 +307,12 @@ rectangle_corners = np.array([
     [x_min_rect, y_max_rect],
     [x_min_rect, y_min_rect]
 ])
+
+# Define two circles within the parallelogram (in normalized space)
+# Circle 1: center at (-0.3, 0.0), radius 0.25
+# Circle 2: center at (-0.3, 0.0), radius 0.25
+CIRCLE_CENTERS = np.array([[-0.3, 0.0], [-0.3, 0.0]])
+CIRCLE_RADII = np.array([0.25, 0.35])
 
 # ==========================================
 # Evaluation Metrics
@@ -350,7 +468,150 @@ def compute_rectangle_grid_coverage(points, rect_bounds, grid_size=10):
     
     return coverage
 
-def compute_geometric_reward(samples, v1, v2, x_min, x_max):
+def compute_distance_from_parallelogram(points, v1, v2, x_min, x_max):
+    """
+    Compute minimum distance from each point to the parallelogram boundary.
+    Returns positive distance for points outside, zero for points inside/on boundary.
+    
+    Args:
+        points: Normalized points in [-1, 1] range (N, 2) - can be numpy or torch
+        v1, v2: Basis vectors of the parallelogram
+        x_min, x_max: Min/max values used for normalization
+        
+    Returns:
+        Array of distances from parallelogram boundary (N,)
+    """
+    # Convert to numpy if torch tensor
+    if torch.is_tensor(points):
+        points = points.detach().cpu().numpy()
+    
+    # Inverse normalization: from [-1, 1] back to original space
+    points_original = (points + 1) / 2 * (x_max - x_min) + x_min
+    
+    # Get parallelogram corners in original space
+    corners = np.array([
+        [0, 0],
+        v1,
+        v1 + v2,
+        v2
+    ])
+    
+    # For each point, compute distance to parallelogram
+    distances = np.zeros(len(points))
+    
+    for i, point in enumerate(points_original):
+        # Solve: point = a*v1 + b*v2
+        M = np.column_stack([v1, v2])
+        try:
+            coeffs = np.linalg.solve(M, point)
+            a, b = coeffs[0], coeffs[1]
+            
+            # Clamp to [0, 1] to find nearest point on parallelogram
+            a_clamped = np.clip(a, 0, 1)
+            b_clamped = np.clip(b, 0, 1)
+            
+            # Nearest point on parallelogram
+            nearest_point = a_clamped * v1 + b_clamped * v2
+            
+            # Distance
+            distances[i] = np.linalg.norm(point - nearest_point)
+        except np.linalg.LinAlgError:
+            # If singular, use distance to nearest corner
+            distances[i] = np.min([np.linalg.norm(point - corner) for corner in corners])
+    
+    return distances
+
+
+def compute_signed_distance_from_parallelogram(points, v1, v2, x_min, x_max):
+    """
+    Compute signed distance from each point to the parallelogram boundary.
+    Negative for points inside, positive for points outside.
+    
+    Args:
+        points: Normalized points in [-1, 1] range (N, 2) - can be numpy or torch
+        v1, v2: Basis vectors of the parallelogram
+        x_min, x_max: Min/max values used for normalization
+        
+    Returns:
+        Array of signed distances (N,)
+        - Negative values: point is inside, abs(value) = distance from boundary inward
+        - Positive values: point is outside, value = distance from boundary outward
+        - Zero: point is on the boundary
+    """
+    # Convert to numpy if torch tensor
+    if torch.is_tensor(points):
+        points = points.detach().cpu().numpy()
+    
+    # Inverse normalization: from [-1, 1] back to original space
+    points_original = (points + 1) / 2 * (x_max - x_min) + x_min
+    
+    # For each point, compute signed distance to parallelogram
+    signed_distances = np.zeros(len(points))
+    
+    for i, point in enumerate(points_original):
+        # Solve: point = a*v1 + b*v2
+        M = np.column_stack([v1, v2])
+        try:
+            coeffs = np.linalg.solve(M, point)
+            a, b = coeffs[0], coeffs[1]
+            
+            # Check if point is inside (0 <= a, b <= 1)
+            eps = 1e-6
+            inside = (a >= -eps) and (a <= 1 + eps) and (b >= -eps) and (b <= 1 + eps)
+            
+            if inside:
+                # Point is inside: compute distance to nearest edge (negative)
+                # Distance to each edge defined by a=0, a=1, b=0, b=1
+                dist_to_edges = [
+                    a * np.linalg.norm(v1),           # distance to a=0 edge
+                    (1-a) * np.linalg.norm(v1),       # distance to a=1 edge
+                    b * np.linalg.norm(v2),           # distance to b=0 edge
+                    (1-b) * np.linalg.norm(v2)        # distance to b=1 edge
+                ]
+                signed_distances[i] = -min(dist_to_edges)
+            else:
+                # Point is outside: compute distance to nearest point on boundary (positive)
+                a_clamped = np.clip(a, 0, 1)
+                b_clamped = np.clip(b, 0, 1)
+                nearest_point = a_clamped * v1 + b_clamped * v2
+                signed_distances[i] = np.linalg.norm(point - nearest_point)
+                
+        except np.linalg.LinAlgError:
+            # If singular, compute distance to nearest corner (assume outside)
+            corners = np.array([[0, 0], v1, v1 + v2, v2])
+            signed_distances[i] = np.min([np.linalg.norm(point - corner) for corner in corners])
+    
+    return signed_distances
+
+
+def check_points_in_circles(points, circle_centers, circle_radii):
+    """
+    Check if points are within any of the given circles.
+    
+    Args:
+        points: Points to check (N, 2) - can be numpy or torch
+        circle_centers: Centers of circles (num_circles, 2)
+        circle_radii: Radii of circles (num_circles,)
+        
+    Returns:
+        Boolean array indicating if each point is inside any circle
+    """
+    # Convert to numpy if torch tensor
+    if torch.is_tensor(points):
+        points = points.detach().cpu().numpy()
+    
+    inside = np.zeros(len(points), dtype=bool)
+    
+    # Check each circle
+    for center, radius in zip(circle_centers, circle_radii):
+        distances = np.sqrt(np.sum((points - center) ** 2, axis=1))
+        inside |= (distances <= radius)
+    
+    return inside
+
+
+def compute_rectangle_reward(samples):
+    """Compute reward based on rectangle (existing reward)."""
     rect_bounds = RECT_BOUNDS
     inside = check_points_in_rectangle(samples, rect_bounds)
     
@@ -359,6 +620,81 @@ def compute_geometric_reward(samples, v1, v2, x_min, x_max):
     rewards = 2.0 * rewards - 1.0  # Map True->1.0, False->-1.0
     
     return rewards
+
+
+def compute_circles_reward(samples):
+    """Compute reward based on annulus: inside bigger circle but outside smaller circle."""
+    # Convert to numpy if torch tensor
+    if torch.is_tensor(samples):
+        points = samples.detach().cpu().numpy()
+    else:
+        points = samples
+    
+    # Both circles have the same center, so we can compute distance once
+    center = CIRCLE_CENTERS[0]  # Both circles share the same center
+    smaller_radius = CIRCLE_RADII[0]  # 0.25
+    bigger_radius = CIRCLE_RADII[1]   # 0.35
+    
+    # Compute distances from center
+    distances = np.sqrt(np.sum((points - center) ** 2, axis=1))
+    
+    # Reward +1 only if inside bigger circle AND outside smaller circle (annulus/ring)
+    in_annulus = (distances > smaller_radius) & (distances <= bigger_radius)
+    
+    # Convert to torch tensor
+    rewards = torch.tensor(in_annulus, dtype=torch.float32, device=samples.device)
+    rewards = 2.0 * rewards - 1.0  # Map True->1.0, False->-1.0
+    
+    return rewards
+
+
+def compute_ring_reward(samples, v1, v2, x_min, x_max, inner_dist=0.0, outer_dist=0.3):
+    """Compute reward based on ring/band around parallelogram boundary.
+    
+    Rewards points in the band region between inner and outer boundaries:
+    - Inner boundary: inner_dist units INSIDE the parallelogram from the edge
+    - Outer boundary: outer_dist units OUTSIDE the parallelogram from the edge
+    - Points in the ring between these boundaries get +1 reward
+    
+    Uses signed distance:
+    - Negative distance = point is inside parallelogram (abs value = distance from edge inward)
+    - Positive distance = point is outside parallelogram (value = distance from edge outward)
+    
+    Reward = +1 if: -inner_dist <= signed_distance <= outer_dist
+    Reward = -1 otherwise
+    
+    Args:
+        samples: Points to evaluate (N, 2)
+        v1, v2: Parallelogram basis vectors
+        x_min, x_max: Normalization parameters
+        inner_dist: Distance inside from boundary (0.0 = boundary itself)
+        outer_dist: Distance outside from boundary
+    """
+    signed_distances = compute_signed_distance_from_parallelogram(samples, v1, v2, x_min, x_max)
+    
+    # Reward points in the ring:
+    # - signed_distance >= -inner_dist (not too deep inside)
+    # - signed_distance <= outer_dist (not too far outside)
+    in_ring = (signed_distances >= -inner_dist) & (signed_distances <= outer_dist)
+    
+    # Convert to torch tensor
+    rewards = torch.tensor(in_ring, dtype=torch.float32, device=samples.device)
+    rewards = 2.0 * rewards - 1.0  # Map True->1.0, False->-1.0
+    
+    return rewards
+
+
+def compute_geometric_reward(samples, v1, v2, x_min, x_max, reward_type="rectangle"):
+    """Compute geometric reward based on the selected reward type."""
+    print(f"Computing {reward_type} reward...")
+    if reward_type == "circles":
+        return compute_circles_reward(samples)
+    elif reward_type == "ring":
+        inner_dist = config.get("ring_inner_distance", 0.3)
+        outer_dist = config.get("ring_outer_distance", 0.3)
+        return compute_ring_reward(samples, v1, v2, x_min, x_max, inner_dist, outer_dist)
+    else:  # default to rectangle
+        return compute_rectangle_reward(samples)
 
 
 def evaluate_samples(real_samples, generated_samples):
@@ -386,7 +722,8 @@ def evaluate_samples(real_samples, generated_samples):
         generated_samples[:n_eval]
     )
     rewards = compute_geometric_reward(
-        torch.tensor(generated_samples[:n_eval], device=device), V1, V2, X_MIN, X_MAX
+        torch.tensor(generated_samples[:n_eval], device=device), V1, V2, X_MIN, X_MAX,
+        reward_type=config.get("reward_type", "rectangle")
     )
     
     # Rectangle grid coverage (detects reward hacking/center clustering)
@@ -755,15 +1092,16 @@ if config["run_eval"]:
     # Define evaluation configurations
     # eval_configs = [
     #     {"scheduler": "ddpm", "steps": config["num_train_steps"], "name": f"DDPM-{config['num_train_steps']}"},
-    #     {"scheduler": "ddim", "steps": config["rl_num_inference_steps"]//10, "name": f"DDIM-{config['rl_num_inference_steps']//10}"},
-    #     {"scheduler": "ddim", "steps": config["rl_num_inference_steps"]//8, "name": f"DDIM-{config['rl_num_inference_steps']//8}"},
-    #     {"scheduler": "ddim", "steps": config["rl_num_inference_steps"]//2, "name": f"DDIM-{config['rl_num_inference_steps']//2}"},
-    #     {"scheduler": "ddim", "steps": config["rl_num_inference_steps"], "name": f"DDIM-{config['rl_num_inference_steps']}"},
+    #     {"scheduler": "ddim", "steps": config["num_ddim_inference_steps"]//10, "name": f"DDIM-{config['num_ddim_inference_steps']//10}"},
+    #     {"scheduler": "ddim", "steps": config["num_ddim_inference_steps"]//8, "name": f"DDIM-{config['num_ddim_inference_steps']//8}"},
+    #     {"scheduler": "ddim", "steps": config["num_ddim_inference_steps"]//2, "name": f"DDIM-{config['num_ddim_inference_steps']//2}"},
+    #     {"scheduler": "ddim", "steps": config["num_ddim_inference_steps"], "name": f"DDIM-{config['num_ddim_inference_steps']}"},
     # ]
     eval_configs = [
         {"scheduler": "ddpm", "steps": 40, "name": f"DDPM-40"},
         {"scheduler": "ddim", "steps": 2, "name": f"DDIM-2"},
         {"scheduler": "ddim", "steps": 3, "name": f"DDIM-3"},
+        {"scheduler": "ddim", "steps": 4, "name": f"DDIM-4"},
         {"scheduler": "ddim", "steps": 5, "name": f"DDIM-5"},
         {"scheduler": "ddim", "steps": 10, "name": f"DDIM-10"},
         {"scheduler": "ddim", "steps": 15, "name": f"DDIM-15"},
@@ -862,7 +1200,34 @@ if config["run_eval"]:
         plt.plot(PARALLELOGRAM_CORNERS[:, 0], PARALLELOGRAM_CORNERS[:, 1], 
                  'k-', linewidth=1.5, alpha=0.7)
         
-        plt.plot(rectangle_corners[:, 0], rectangle_corners[:, 1], '-', color='orange', linewidth=2, label='RL reward Manifold')
+        # # Plot reward shape based on reward_type
+        # if config.get("reward_type", "rectangle") == "circles":
+        #     for i, (center, radius) in enumerate(zip(CIRCLE_CENTERS, CIRCLE_RADII)):
+        #         circle = plt.Circle(center, radius, fill=False, color='orange', linewidth=2, 
+        #                           label='RL reward Manifold' if i == 0 else '')
+        #         plt.gca().add_patch(circle)
+        # elif config.get("reward_type", "rectangle") == "ring":
+        #     # Draw inner and outer parallelograms to show the ring boundaries
+        #     outer_dist = config.get("ring_outer_distance", 0.3)
+        #     inner_dist = config.get("ring_inner_distance", 0.0)
+            
+        #     # Draw outer boundary (offset OUTWARD by outer_dist)
+        #     outer_corners = get_offset_parallelogram_normalized(V1, V2, X_MIN, X_MAX, outer_dist)
+        #     plt.plot(outer_corners[:, 0], outer_corners[:, 1],
+        #              '-', color='orange', linewidth=2, label='RL reward Manifold (outer)')
+            
+        #     # Draw inner boundary (offset INWARD by inner_dist, negative offset goes inside)
+        #     if inner_dist > 0:
+        #         # Offset INWARD (negative direction)
+        #         inner_corners = get_offset_parallelogram_normalized(V1, V2, X_MIN, X_MAX, -inner_dist)
+        #         plt.plot(inner_corners[:, 0], inner_corners[:, 1],
+        #                  '-', color='orange', linewidth=2, linestyle='--', label='RL reward Manifold (inner)')
+        #     else:
+        #         # inner_dist = 0 means inner boundary is the original parallelogram
+        #         plt.plot(PARALLELOGRAM_CORNERS[:, 0], PARALLELOGRAM_CORNERS[:, 1],
+        #                  '-', color='orange', linewidth=2, linestyle='--', label='RL reward Manifold (inner)')
+        # else:
+        #     plt.plot(rectangle_corners[:, 0], rectangle_corners[:, 1], '-', color='orange', linewidth=2, label='RL reward Manifold')
         
         # Get metrics for title
         row = df_results[df_results['name'] == eval_cfg['name']].iloc[0]
@@ -938,6 +1303,36 @@ if not config["run_eval"]:
     plt.scatter(samples[:, 0], samples[:, 1], s=1, alpha=0.5, c='red')
     plt.plot(PARALLELOGRAM_CORNERS[:, 0], PARALLELOGRAM_CORNERS[:, 1], 
              'k-', linewidth=2, label='True Manifold')
+    
+    # Plot reward shape based on reward_type
+    if config.get("reward_type", "rectangle") == "circles":
+        for i, (center, radius) in enumerate(zip(CIRCLE_CENTERS, CIRCLE_RADII)):
+            circle = plt.Circle(center, radius, fill=False, color='orange', linewidth=2, 
+                              label='RL Reward Region' if i == 0 else '')
+            plt.gca().add_patch(circle)
+    elif config.get("reward_type", "rectangle") == "ring":
+        # Draw inner and outer parallelograms to show the ring boundaries
+        outer_dist = config.get("ring_outer_distance", 0.3)
+        inner_dist = config.get("ring_inner_distance", 0.0)
+        
+        # Draw outer boundary (offset OUTWARD by outer_dist)
+        outer_corners = get_offset_parallelogram_normalized(V1, V2, X_MIN, X_MAX, outer_dist)
+        plt.plot(outer_corners[:, 0], outer_corners[:, 1],
+                 '-', color='orange', linewidth=2, label='RL Reward Region (outer)')
+        
+        # Draw inner boundary (offset INWARD by inner_dist, negative offset goes inside)
+        if inner_dist > 0:
+            # Offset INWARD (negative direction)
+            inner_corners = get_offset_parallelogram_normalized(V1, V2, X_MIN, X_MAX, -inner_dist)
+            plt.plot(inner_corners[:, 0], inner_corners[:, 1],
+                     '-', color='orange', linewidth=2, linestyle='--', label='RL Reward Region (inner)')
+        else:
+            # inner_dist = 0 means inner boundary is the original parallelogram
+            plt.plot(PARALLELOGRAM_CORNERS[:, 0], PARALLELOGRAM_CORNERS[:, 1],
+                     '-', color='orange', linewidth=2, linestyle='--', label='RL Reward Region (inner)')
+    else:
+        plt.plot(rectangle_corners[:, 0], rectangle_corners[:, 1], '-', color='orange', linewidth=2, label='RL Reward Region')
+    
     plt.title(f"Diffusers Generated (Epoch {num_epochs}), with sampler {config['noise_scheduler']}")
     plt.axis("equal")
     plt.grid(True, alpha=0.3)
@@ -1039,7 +1434,7 @@ if config["run_rl"]:
         
         # Compute rewards (per-sample)
         x0 = trajectories[:, -1]
-        rewards = compute_geometric_reward(x0, V1, V2, X_MIN, X_MAX)
+        rewards = compute_geometric_reward(x0, V1, V2, X_MIN, X_MAX, reward_type=config.get("reward_type", "rectangle"))
         
         # Calculate advantages
         reward_mean = rewards.mean()
@@ -1232,7 +1627,20 @@ if config["run_rl"]:
     plt.scatter(rl_samples[:5000, 0], rl_samples[:5000, 1], s=1, alpha=0.5, c='green')
     plt.plot(PARALLELOGRAM_CORNERS[:, 0], PARALLELOGRAM_CORNERS[:, 1],
              'k-', linewidth=2, label='Pretrained Manifold')
-    plt.plot(rectangle_corners[:, 0], rectangle_corners[:, 1], '-', color='orange', linewidth=2, label='RL reward Manifold')
+    
+    # Plot reward shape based on reward_type
+    if config.get("reward_type", "rectangle") == "circles":
+        for i, (center, radius) in enumerate(zip(CIRCLE_CENTERS, CIRCLE_RADII)):
+            circle = plt.Circle(center, radius, fill=False, color='orange', linewidth=2, 
+                              label='RL reward Manifold' if i == 0 else '')
+            plt.gca().add_patch(circle)
+    elif config.get("reward_type", "rectangle") == "ring":
+        # Draw parallelogram in orange to show the ring is around it
+        plt.plot(PARALLELOGRAM_CORNERS[:, 0], PARALLELOGRAM_CORNERS[:, 1],
+                 '-', color='orange', linewidth=3, label='RL reward Manifold (ring around this)')
+    else:
+        plt.plot(rectangle_corners[:, 0], rectangle_corners[:, 1], '-', color='orange', linewidth=2, label='RL reward Manifold')
+    
     plt.axis("equal")
     plt.grid(True, alpha=0.3)
     plt.legend()
