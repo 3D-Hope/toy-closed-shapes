@@ -14,12 +14,12 @@ import time
 from typing import Optional, Tuple
 from diffusers.utils.torch_utils import randn_tensor
 
-name = "only_2_steps_ring_around_boundary_reg_0.0"
+name = "only_5_steps_ring_around_boundary_reg_0.0"
 
 config = {
 
     "load": None,
-    "load": "/media/ajad/YourBook/AshokSaugatResearchBackup/AshokSaugatResearch/toy_parallelogram/outputs/40_step_rl_ppo/ckpt_toy_rl/model_checkpoint_rl.pt",
+    "load": "/media/ajad/YourBook/AshokSaugatResearchBackup/AshokSaugatResearch/toy_parallelogram/outputs/joint_reinforce_toy/ckpt_toy_rl/model_checkpoint_rl.pt",
     # "load": "/media/ajad/YourBook/AshokSaugatResearchBackup/AshokSaugatResearch/toy_parallelogram/outputs/only_3_steps/ckpt_toy_rl/model_checkpoint_rl_epoch_4000.pt",
     # "load": "/media/ajad/YourBook/AshokSaugatResearchBackup/AshokSaugatResearch/toy_parallelogram/outputs/rect_pretraining_40_rl_40/ckpt_toy/model_checkpoint.pt", #baseline
     "noise_scheduler": "ddim", #or ddpm
@@ -36,7 +36,7 @@ config = {
     "rl_num_epochs": 4000,
     "save_every": 1000,
     "rl_batch_size": 512,
-    "rl_num_inference_steps": 2, #can not have 5 for eval for some reason, # FIXME:
+    "rl_num_inference_steps": 5, #can not have 5 for eval for some reason, # FIXME:
     "rl_lr": 1e-6,
     "rl_ddpm_reg_weight": 0.0,  # Weight for DDPM regularization loss
     "rl_advantage_max": 10.0,  # Clipping for advantages
@@ -788,7 +788,7 @@ else:
     print(f"Training on {device} using Diffusers library...")
 for epoch in range(start_epoch, num_epochs):
     epoch_loss = 0.0
-    model.train()
+    model.eval()
     
     for (batch_x,) in dataloader:
         batch_x = batch_x.to(device)
@@ -1200,34 +1200,34 @@ if config["run_eval"]:
         plt.plot(PARALLELOGRAM_CORNERS[:, 0], PARALLELOGRAM_CORNERS[:, 1], 
                  'k-', linewidth=1.5, alpha=0.7)
         
-        # # Plot reward shape based on reward_type
-        # if config.get("reward_type", "rectangle") == "circles":
-        #     for i, (center, radius) in enumerate(zip(CIRCLE_CENTERS, CIRCLE_RADII)):
-        #         circle = plt.Circle(center, radius, fill=False, color='orange', linewidth=2, 
-        #                           label='RL reward Manifold' if i == 0 else '')
-        #         plt.gca().add_patch(circle)
-        # elif config.get("reward_type", "rectangle") == "ring":
-        #     # Draw inner and outer parallelograms to show the ring boundaries
-        #     outer_dist = config.get("ring_outer_distance", 0.3)
-        #     inner_dist = config.get("ring_inner_distance", 0.0)
+        # Plot reward shape based on reward_type
+        if config.get("reward_type", "rectangle") == "circles":
+            for i, (center, radius) in enumerate(zip(CIRCLE_CENTERS, CIRCLE_RADII)):
+                circle = plt.Circle(center, radius, fill=False, color='orange', linewidth=2, 
+                                  label='RL reward Manifold' if i == 0 else '')
+                plt.gca().add_patch(circle)
+        elif config.get("reward_type", "rectangle") == "ring":
+            # Draw inner and outer parallelograms to show the ring boundaries
+            outer_dist = config.get("ring_outer_distance", 0.3)
+            inner_dist = config.get("ring_inner_distance", 0.0)
             
-        #     # Draw outer boundary (offset OUTWARD by outer_dist)
-        #     outer_corners = get_offset_parallelogram_normalized(V1, V2, X_MIN, X_MAX, outer_dist)
-        #     plt.plot(outer_corners[:, 0], outer_corners[:, 1],
-        #              '-', color='orange', linewidth=2, label='RL reward Manifold (outer)')
+            # Draw outer boundary (offset OUTWARD by outer_dist)
+            outer_corners = get_offset_parallelogram_normalized(V1, V2, X_MIN, X_MAX, outer_dist)
+            plt.plot(outer_corners[:, 0], outer_corners[:, 1],
+                     '-', color='orange', linewidth=2, label='RL reward Manifold (outer)')
             
-        #     # Draw inner boundary (offset INWARD by inner_dist, negative offset goes inside)
-        #     if inner_dist > 0:
-        #         # Offset INWARD (negative direction)
-        #         inner_corners = get_offset_parallelogram_normalized(V1, V2, X_MIN, X_MAX, -inner_dist)
-        #         plt.plot(inner_corners[:, 0], inner_corners[:, 1],
-        #                  '-', color='orange', linewidth=2, linestyle='--', label='RL reward Manifold (inner)')
-        #     else:
-        #         # inner_dist = 0 means inner boundary is the original parallelogram
-        #         plt.plot(PARALLELOGRAM_CORNERS[:, 0], PARALLELOGRAM_CORNERS[:, 1],
-        #                  '-', color='orange', linewidth=2, linestyle='--', label='RL reward Manifold (inner)')
-        # else:
-        #     plt.plot(rectangle_corners[:, 0], rectangle_corners[:, 1], '-', color='orange', linewidth=2, label='RL reward Manifold')
+            # Draw inner boundary (offset INWARD by inner_dist, negative offset goes inside)
+            if inner_dist > 0:
+                # Offset INWARD (negative direction)
+                inner_corners = get_offset_parallelogram_normalized(V1, V2, X_MIN, X_MAX, -inner_dist)
+                plt.plot(inner_corners[:, 0], inner_corners[:, 1],
+                         '-', color='orange', linewidth=2, linestyle='--', label='RL reward Manifold (inner)')
+            else:
+                # inner_dist = 0 means inner boundary is the original parallelogram
+                plt.plot(PARALLELOGRAM_CORNERS[:, 0], PARALLELOGRAM_CORNERS[:, 1],
+                         '-', color='orange', linewidth=2, linestyle='--', label='RL reward Manifold (inner)')
+        else:
+            plt.plot(rectangle_corners[:, 0], rectangle_corners[:, 1], '-', color='orange', linewidth=2, label='RL reward Manifold')
         
         # Get metrics for title
         row = df_results[df_results['name'] == eval_cfg['name']].iloc[0]
@@ -1420,7 +1420,7 @@ if config["run_rl"]:
     print(f"LR Scheduler: Warmup ({warmup_epochs} epochs) → Gentle decay (1e-6 → {config['rl_lr'] * 0.95:.2e})")
     
     for rl_epoch in range(config["rl_num_epochs"]):
-        # model.train() # Note: it was there when the rl worked but i think this is useless
+        model.train() # Note: it was there when the rl worked but i think this is useless #Note: seems to work without it as well, but for some reason we must have train() in ppo to work.
 
         
         # ============ REINFORCE Loss ============
