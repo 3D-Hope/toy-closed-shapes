@@ -14,7 +14,8 @@ import time
 from typing import Optional, Tuple
 from diffusers.utils.torch_utils import randn_tensor
 
-name = "40_step_rl_ppo"
+# name = "ppo_inc_2_3_4_5"
+name = "ppo_5only"
 
 config = {
 
@@ -37,10 +38,13 @@ config = {
     "inner_epochs": 5,
     "save_every": 1000,
     "rl_batch_size": 512,
-    "rl_num_inference_steps": 40, #can not have 5 for eval for some reason, # FIXME:
+    "rl_num_inference_steps": 5, #can not have 5 for eval for some reason, # FIXME:
     "rl_lr": 1e-6,
     "rl_ddpm_reg_weight": 0.0,  # Weight for DDPM regularization loss
     "rl_advantage_max": 10.0,  # Clipping for advantages
+    "num_update_steps": 4, #number of ppo update steps per inner epoch
+    "incremental": False,  # Whether to use incremental learning
+    # "incremental": False,  # Whether to use incremental learning
 }
 
 # config = {
@@ -763,7 +767,7 @@ def ddim_sample_with_diffusers(model, scheduler, n_samples=10000, num_steps=None
     return x.detach().cpu().numpy()
 
 @torch.no_grad()
-def ddim_sample_with_log_probs(model, scheduler, n_samples=256, num_steps=20, eta=1.0):
+def ddim_sample_with_log_probs(model, scheduler, n_samples=256, num_steps=20, timesteps=None, eta=1.0):
     """
     Sample using DDIM while tracking log probabilities for RL training.
     
@@ -792,7 +796,9 @@ def ddim_sample_with_log_probs(model, scheduler, n_samples=256, num_steps=20, et
     
     trajectory.append(x)
     # 3. Denoising Loop
-    for t in scheduler.timesteps:
+    if timesteps is None:
+        timesteps = scheduler.timesteps
+    for t in timesteps:
         # Create batch of timesteps
         t_batch = torch.full((n_samples,), t, device=device, dtype=torch.long)
         
@@ -820,7 +826,10 @@ def ddim_sample_with_log_probs(model, scheduler, n_samples=256, num_steps=20, et
         )
     
     # Create timesteps tensor: repeat for each sample
-    timesteps_tensor = scheduler.timesteps.to(device).repeat(n_samples, 1)
+    if config["incremental"]:
+        timesteps_tensor = torch.tensor(timesteps, device=device).repeat(n_samples, 1)
+    else:
+        timesteps_tensor = scheduler.timesteps.to(device).repeat(n_samples, 1)
     
     samples = {
         "timesteps": timesteps_tensor,
@@ -1112,20 +1121,53 @@ if config["run_rl"]:
     print(f"DDPM regularization weight: {config['rl_ddpm_reg_weight']}")
     print(f"LR Scheduler: Warmup ({warmup_epochs} epochs) → Gentle decay (1e-6 → {config['rl_lr'] * 0.95:.2e})")
     
-    for rl_epoch in range(config["rl_num_epochs"]//config["inner_epochs"]):
+    if config["incremental"]:
+        increments = [2,3,4,5]
+        # increments = [2,3,4]
+        training_steps_per_increment = [1000 for _ in increments]
+        cum_sum_steps = np.cumsum(training_steps_per_increment).tolist()
+        min_denoising_steps = min(increments)
+        max_denoising_steps = max(increments)
+        num_increments = len(increments)
+        training_steps = 0
+        
+        def get_timesteps_for_inc_joint(n_timesteps):
+            # n_inference_steps = 150 # TODO: Make this a config param
+            # num_steps_total = 1000
+            n_inference_steps = 5 # for this, 2,3 and 4 follow timesteps that are in the path of 5 timesteps
+            num_steps_total = 40
+            step_ratio = num_steps_total//n_inference_steps
+            timestep_150 =  (np.arange(0, n_inference_steps) * step_ratio).round()[::-1].copy().astype(np.int64)
+
+            # do linspace  to sample the equally distanced 100 indices 0 to 149 and use the timesteps at those indices for 100 timesteps to get timestep_100
+            indices = np.linspace(0, len(timestep_150) - 1, n_timesteps).round().astype(np.int64)
+            timesteps = timestep_150[indices]
+            return torch.tensor(timesteps)
+    
+    for rl_epoch in range(config["rl_num_epochs"]//(config["inner_epochs"] + config["num_update_steps"])):
         # model.train() # Note: it was there when the rl worked but i think this is useless
 
         total_batch_size = 1024
-        # ============ REINFORCE Loss ============
+        if config["incremental"]:
+            if training_steps >= cum_sum_steps[-1]:
+                    n_timesteps_to_sample = increments[-1]
+            else:
+                which_increment = np.searchsorted(cum_sum_steps, training_steps)
+                n_timesteps_to_sample = increments[int(which_increment)]   
+            timesteps = get_timesteps_for_inc_joint(n_timesteps_to_sample).to(device)
+            print(f"\033[92mn_timesteps_to_sample: {n_timesteps_to_sample}\033[0m")
+        else:
+            timesteps = None
         # Generate trajectories with log probs without grad tracking
         model.eval()
         with torch.no_grad():
-            sampling_timesteps =config["rl_num_inference_steps"]
+            sampling_timesteps =config["rl_num_inference_steps"] if timesteps is None else len(timesteps)
             samples = ddim_sample_with_log_probs(
                 model, 
                 noise_scheduler, 
                 n_samples=total_batch_size,
-                num_steps=sampling_timesteps
+                num_steps=sampling_timesteps,
+                timesteps=timesteps
             )
         
         # Compute rewards (per-sample)
@@ -1141,18 +1183,15 @@ if config["run_rl"]:
             max=config["rl_advantage_max"]
         )
         samples["advantages"] = advantages
-
-        
         #################### TRAINING ####################
         for inner_epoch in range(config["inner_epochs"]):
             # shuffle samples along batch dimension
             perm = torch.randperm(total_batch_size, device=device)
             samples = {k: v[perm] for k, v in samples.items()}
-
             # shuffle along time dimension independently for each sample
             perms = torch.stack(
                 [
-                    torch.randperm(config["rl_num_inference_steps"], device=device)
+                    torch.randperm(samples["timesteps"].shape[1], device=device)
                     for _ in range(total_batch_size)
                 ]
             )
@@ -1174,12 +1213,13 @@ if config["run_rl"]:
             samples_batched = [
                 dict(zip(samples_batched, x)) for x in zip(*samples_batched.values())
             ]
-
+            # print(f"num of batches: {len(samples_batched)}")
             # train
+            # model.eval()
             model.train()
             for i, sample in list(enumerate(samples_batched)):
 
-                for j in range(config["rl_num_inference_steps"]):
+                for j in range(sample["timesteps"].shape[1]):
                     noise_pred = model(
                         sample["latents"][:, j],
                         sample["timesteps"][:, j],
@@ -1249,7 +1289,8 @@ if config["run_rl"]:
                     rl_metrics_history['ddpm_reg_loss'].append(ddpm_reg_loss.item())
                     rl_metrics_history['reward_mean'].append(reward_mean.item())
                     rl_metrics_history['learning_rate'].append(current_lr)
-                    
+                    if config["incremental"]:
+                        training_steps += 1
                     # Logging
                     if rl_epoch % 5 == 0 or rl_epoch == config["rl_num_epochs"] - 1:
                         with torch.no_grad():

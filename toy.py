@@ -19,9 +19,9 @@ name = "only_2_steps_ring_around_boundary_reg_0.0"
 config = {
 
     "load": None,
-    # "load": "/media/ajad/YourBook/AshokSaugatResearchBackup/AshokSaugatResearch/toy_parallelogram/outputs/only_2_steps_ring_around_boundary_reg_0.0/ckpt_toy_rl/model_checkpoint_rl.pt",
+    "load": "/media/ajad/YourBook/AshokSaugatResearchBackup/AshokSaugatResearch/toy_parallelogram/outputs/40_step_rl_ppo/ckpt_toy_rl/model_checkpoint_rl.pt",
     # "load": "/media/ajad/YourBook/AshokSaugatResearchBackup/AshokSaugatResearch/toy_parallelogram/outputs/only_3_steps/ckpt_toy_rl/model_checkpoint_rl_epoch_4000.pt",
-    "load": "/media/ajad/YourBook/AshokSaugatResearchBackup/AshokSaugatResearch/toy_parallelogram/outputs/rect_pretraining_40_rl_40/ckpt_toy/model_checkpoint.pt", #baseline
+    # "load": "/media/ajad/YourBook/AshokSaugatResearchBackup/AshokSaugatResearch/toy_parallelogram/outputs/rect_pretraining_40_rl_40/ckpt_toy/model_checkpoint.pt", #baseline
     "noise_scheduler": "ddim", #or ddpm
     "num_train_steps": 40,
     "num_ddim_inference_steps": 40,
@@ -40,7 +40,7 @@ config = {
     "rl_lr": 1e-6,
     "rl_ddpm_reg_weight": 0.0,  # Weight for DDPM regularization loss
     "rl_advantage_max": 10.0,  # Clipping for advantages
-    "reward_type": "ring",  # "rectangle", "circles", or "ring" - choose reward function
+    "reward_type": "rectangle",  # "rectangle", "circles", or "ring" - choose reward function
     "ring_inner_distance": 0.5,  # For ring reward: inner distance threshold)
     "ring_outer_distance": 0.3,  # For ring reward: reward points within this distance from boundary
 }
