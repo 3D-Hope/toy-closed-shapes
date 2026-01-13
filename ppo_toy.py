@@ -15,7 +15,7 @@ from typing import Optional, Tuple
 from diffusers.utils.torch_utils import randn_tensor
 
 # name = "ppo_inc_2_3_4_5"
-name = "ppo_5only"
+name = "ppo_2only"
 
 config = {
 
@@ -34,17 +34,17 @@ config = {
     "run_rl": True,  # Set to True to run RL fine-tuning
     "rl_checkpoint_dir": f"outputs/{name}/ckpt_toy_rl",
     "rl_load_from_checkpoint": None,  # Path to checkpoint to fine-tune from (or None to use base checkpoint)
-    "rl_num_epochs": 4000,
+    "rl_num_epochs": 8000,
     "inner_epochs": 5,
     "save_every": 1000,
     "rl_batch_size": 512,
-    "rl_num_inference_steps": 5, #can not have 5 for eval for some reason, # FIXME:
+    "rl_num_inference_steps": 2, #can not have 5 for eval for some reason, # FIXME:
     "rl_lr": 1e-6,
     "rl_ddpm_reg_weight": 0.0,  # Weight for DDPM regularization loss
     "rl_advantage_max": 10.0,  # Clipping for advantages
     "num_update_steps": 4, #number of ppo update steps per inner epoch
+    # "incremental": True,  # Whether to use incremental learning
     "incremental": False,  # Whether to use incremental learning
-    # "incremental": False,  # Whether to use incremental learning
 }
 
 # config = {
@@ -457,7 +457,7 @@ else:
     print(f"Training on {device} using Diffusers library...")
 for epoch in range(start_epoch, num_epochs):
     epoch_loss = 0.0
-    model.train()
+    model.eval()
     
     for (batch_x,) in dataloader:
         batch_x = batch_x.to(device)
@@ -1121,15 +1121,15 @@ if config["run_rl"]:
     print(f"DDPM regularization weight: {config['rl_ddpm_reg_weight']}")
     print(f"LR Scheduler: Warmup ({warmup_epochs} epochs) → Gentle decay (1e-6 → {config['rl_lr'] * 0.95:.2e})")
     
+    training_steps = 0
     if config["incremental"]:
         increments = [2,3,4,5]
         # increments = [2,3,4]
-        training_steps_per_increment = [1000 for _ in increments]
+        training_steps_per_increment = [2000 for _ in increments]
         cum_sum_steps = np.cumsum(training_steps_per_increment).tolist()
         min_denoising_steps = min(increments)
         max_denoising_steps = max(increments)
         num_increments = len(increments)
-        training_steps = 0
         
         def get_timesteps_for_inc_joint(n_timesteps):
             # n_inference_steps = 150 # TODO: Make this a config param
@@ -1143,8 +1143,8 @@ if config["run_rl"]:
             indices = np.linspace(0, len(timestep_150) - 1, n_timesteps).round().astype(np.int64)
             timesteps = timestep_150[indices]
             return torch.tensor(timesteps)
-    
-    for rl_epoch in range(config["rl_num_epochs"]//(config["inner_epochs"] + config["num_update_steps"])):
+        prev_n_timesteps_to_sample = increments[0]
+    for rl_epoch in range(config["rl_num_epochs"]//(config["inner_epochs"] * config["num_update_steps"])):
         # model.train() # Note: it was there when the rl worked but i think this is useless
 
         total_batch_size = 1024
@@ -1155,7 +1155,9 @@ if config["run_rl"]:
                 which_increment = np.searchsorted(cum_sum_steps, training_steps)
                 n_timesteps_to_sample = increments[int(which_increment)]   
             timesteps = get_timesteps_for_inc_joint(n_timesteps_to_sample).to(device)
-            print(f"\033[92mn_timesteps_to_sample: {n_timesteps_to_sample}\033[0m")
+            if n_timesteps_to_sample != prev_n_timesteps_to_sample:
+                print(f"\033[92mn_timesteps_to_sample updated from {prev_n_timesteps_to_sample} to {n_timesteps_to_sample} after {training_steps} training steps\033[0m")
+                prev_n_timesteps_to_sample = n_timesteps_to_sample
         else:
             timesteps = None
         # Generate trajectories with log probs without grad tracking
@@ -1218,7 +1220,7 @@ if config["run_rl"]:
             # model.eval()
             model.train()
             for i, sample in list(enumerate(samples_batched)):
-
+                rl_optimizer.zero_grad()
                 for j in range(sample["timesteps"].shape[1]):
                     noise_pred = model(
                         sample["latents"][:, j],
@@ -1268,55 +1270,55 @@ if config["run_rl"]:
                     total_loss = ppo_loss + config["rl_ddpm_reg_weight"] * ddpm_reg_loss
         
                     # Backprop and optimize
-                    rl_optimizer.zero_grad()
-                    total_loss.backward()
-                    rl_optimizer.step()
-                    rl_scheduler.step()
-        
-                    # for name, param in model.named_parameters():
-                    #     if param.grad is not None:
-                    #         print(f"{name}: grad norm = {param.grad.norm().item():.6f}")
-                    #     else:
-                    #         print(f"{name}: NO GRADIENT!")
-                            
-                    # print(f"Reward stats: min={rewards.min():.3f}, max={rewards.max():.3f}, "
-                    # f"positive_ratio={(rewards > 0).float().mean():.3f}")
                     
-                    # Track metrics
-                    current_lr = rl_scheduler.get_last_lr()[0]
-                    rl_metrics_history['total_loss'].append(total_loss.item())
-                    rl_metrics_history['ppo_loss'].append(ppo_loss.item())
-                    rl_metrics_history['ddpm_reg_loss'].append(ddpm_reg_loss.item())
-                    rl_metrics_history['reward_mean'].append(reward_mean.item())
-                    rl_metrics_history['learning_rate'].append(current_lr)
-                    if config["incremental"]:
-                        training_steps += 1
-                    # Logging
-                    if rl_epoch % 5 == 0 or rl_epoch == config["rl_num_epochs"] - 1:
-                        with torch.no_grad():
-                            print(f"RL Epoch {rl_epoch:03d} | "
-                                f"RL Inner Epoch {inner_epoch:03d} | "
-                                f"Inner Epoch Step {j+1:03d} | "
-                                f"Total Loss: {total_loss.item():.6f} | "
-                                f"REINFORCE: {ppo_loss.item():.6f} | "
-                                f"DDPM Reg: {ddpm_reg_loss.item():.6f} | "
-                                f"Reward: {reward_mean.item():.4f} | "
-                                f"LR: {current_lr:.2e}"
-                            )
-                    
-                    # Save checkpoint periodically
-                    if (rl_epoch + 1) % config["save_every"] == 0 or rl_epoch == config["rl_num_epochs"] - 1:
-                        checkpoint_save_path = rl_checkpoint_path / f"model_checkpoint_rl_epoch_{rl_epoch+1}.pt"
-                        torch.save({
-                            'epoch': rl_epoch,
-                            'model_state_dict': model.state_dict(),
-                            'optimizer_state_dict': rl_optimizer.state_dict(),
-                            'scheduler_state_dict': rl_scheduler.state_dict(),
-                            'metrics_history': rl_metrics_history,
-                            'config': config,
-                        }, checkpoint_save_path)
-                        print(f"  → Checkpoint saved: {checkpoint_save_path.name}")
+                    total_loss.backward() # internally accumulates gradients
+                rl_optimizer.step()
+                rl_scheduler.step()
+    
+                # for name, param in model.named_parameters():
+                #     if param.grad is not None:
+                #         print(f"{name}: grad norm = {param.grad.norm().item():.6f}")
+                #     else:
+                #         print(f"{name}: NO GRADIENT!")
+                        
+                # print(f"Reward stats: min={rewards.min():.3f}, max={rewards.max():.3f}, "
+                # f"positive_ratio={(rewards > 0).float().mean():.3f}")
                 
+                # Track metrics
+                current_lr = rl_scheduler.get_last_lr()[0]
+                rl_metrics_history['total_loss'].append(total_loss.item())
+                rl_metrics_history['ppo_loss'].append(ppo_loss.item())
+                rl_metrics_history['ddpm_reg_loss'].append(ddpm_reg_loss.item())
+                rl_metrics_history['reward_mean'].append(reward_mean.item())
+                rl_metrics_history['learning_rate'].append(current_lr)
+                training_steps += 1
+                # Logging
+                # if rl_epoch % 5 == 0 or rl_epoch == config["rl_num_epochs"] - 1:
+                #     with torch.no_grad():
+                #         print(f"RL Epoch {rl_epoch:03d} | "
+                #             f"RL Inner Epoch {inner_epoch:03d} | "
+                #             f"Inner Epoch Step {j+1:03d} | "
+                #             f"Total Loss: {total_loss.item():.6f} | "
+                #             f"REINFORCE: {ppo_loss.item():.6f} | "
+                #             f"DDPM Reg: {ddpm_reg_loss.item():.6f} | "
+                #             f"Reward: {reward_mean.item():.4f} | "
+                #             f"LR: {current_lr:.2e}"
+                #         )
+                
+                # Save checkpoint periodically
+                if (training_steps + 1) % config["save_every"] == 0 or rl_epoch == config["rl_num_epochs"] - 1:
+                    checkpoint_save_path = rl_checkpoint_path / f"model_checkpoint_rl_epoch_{rl_epoch+1}.pt"
+                    torch.save({
+                        'epoch': rl_epoch,
+                        'model_state_dict': model.state_dict(),
+                        'optimizer_state_dict': rl_optimizer.state_dict(),
+                        'scheduler_state_dict': rl_scheduler.state_dict(),
+                        'metrics_history': rl_metrics_history,
+                        'config': config,
+                    }, checkpoint_save_path)
+                    print(f"  → Checkpoint saved: {checkpoint_save_path.name}")
+                
+    print(f"final training step {training_steps}")
     # Plot training curves
     print("\nPlotting RL training curves...")
     fig, axes = plt.subplots(2, 3, figsize=(18, 10))
