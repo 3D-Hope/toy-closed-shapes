@@ -5,3 +5,4 @@ tmp/
 *.png
 outputs/
 .vscode/
+data/
