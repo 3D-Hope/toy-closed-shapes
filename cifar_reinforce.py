@@ -21,11 +21,13 @@ import requests
 # Configuration
 # ==========================================
 
-name = "cifar_dit_jpeg_reward"
+# name = "cifar_dit_jpeg_reward"
+name = "ddpo_rl_baseline"
 
 config = {
     # Base training config
     "load": None,  # Change to path if loading a pretrained model
+    "load": "/media/ajad/YourBook/AshokSaugatResearchBackup/AshokSaugatResearch/toy_parallelogram/outputs/cifar_dit_jpeg_reward/ckpt/model_checkpoint.pt",
     "noise_scheduler": "ddim", 
     "num_train_steps": 1000,
     "num_ddim_inference_steps": 50,
@@ -37,12 +39,12 @@ config = {
     "run_rl": True,
     "rl_checkpoint_dir": f"outputs/{name}/ckpt_rl",
     "rl_load_from_checkpoint": None,
-    "rl_num_epochs": 100,
-    "save_every": 10,
-    "rl_batch_size": 32, # Batch size for RL
-    "rl_num_inference_steps": 10, # Reduced steps for RL efficiency
-    "rl_lr": 1e-5,
-    "rl_ddpm_reg_weight": 0.01,
+    "rl_num_epochs": 10000,
+    "save_every": 100,
+    "rl_batch_size": 4, # Batch size for RL
+    "rl_num_inference_steps": 50, # Reduced steps for RL efficiency
+    "rl_lr": 1e-6,
+    "rl_ddpm_reg_weight": 0.00,
     "rl_advantage_max": 5.0,
     
     # Model Config
@@ -195,10 +197,12 @@ from scipy.linalg import sqrtm
 class FIDMetric:
     def __init__(self, device):
         self.device = device
-        # Load InceptionV3
-        # Transform input: 299x299, normalize
-        self.inception = torchvision.models.inception_v3(weights='IMAGENET1K_V1', transform_input=False).to(device)
+        # Load InceptionV3 to CPU to save VRAM (only used during eval)
+        # Will move to GPU temporarily when computing FID
+        print("Loading InceptionV3 to CPU to save VRAM...")
+        self.inception = torchvision.models.inception_v3(weights='IMAGENET1K_V1', transform_input=False)
         self.inception.eval()
+        self.inception_device = 'cpu'  # Track current device
         
         # Hook to get features from the pool3 layer (2048 dim)
         self.features = []
@@ -216,6 +220,12 @@ class FIDMetric:
         
     @torch.no_grad()
     def get_features(self, loader_or_tensor, max_samples=2000, batch_size=32):
+        # Temporarily move Inception to GPU for feature extraction
+        if self.inception_device != self.device:
+            print(f"Moving InceptionV3 to {self.device} for FID computation...")
+            self.inception = self.inception.to(self.device)
+            self.inception_device = self.device
+            
         self.features = []
         all_feats = []
         count = 0
@@ -239,7 +249,7 @@ class FIDMetric:
                     )
                     
                     self.inception(sub_batch)
-                    all_feats.append(self.features[-1])
+                    all_feats.append(self.features[-1].cpu())  # Move to CPU immediately
                     self.features = [] # Clear hook format
                 
                 count += batch.shape[0]
@@ -260,11 +270,17 @@ class FIDMetric:
                     std=[0.229, 0.224, 0.225]
                 )
                 self.inception(batch)
-                all_feats.append(self.features[-1])
+                all_feats.append(self.features[-1].cpu())  # Move to CPU immediately
                 self.features = []
+        
+        # Move Inception back to CPU to free VRAM
+        print(f"Moving InceptionV3 back to CPU to free VRAM...")
+        self.inception = self.inception.to('cpu')
+        self.inception_device = 'cpu'
+        torch.cuda.empty_cache()  # Clear GPU cache
             
         all_feats = torch.cat(all_feats, dim=0)[:max_samples]
-        return all_feats.cpu().numpy()
+        return all_feats.numpy()
 
     def compute_stats(self, features):
         mu = np.mean(features, axis=0)
@@ -545,6 +561,7 @@ if config["load"] is not None:
         print(f"Loading from {config['load']}")
         ckpt = torch.load(config["load"], map_location=device)
         model.load_state_dict(ckpt['model_state_dict'])
+        start_epoch = 501
 elif checkpoint_file.exists() and config["skip_training_if_ckpt_exists"]:
     print(f"Loading checkpoint {checkpoint_file}")
     ckpt = torch.load(checkpoint_file, map_location=device)
@@ -605,7 +622,7 @@ if start_epoch < num_pretrain_epochs:
         # Compute FID
         print("Computing FID...")
         with torch.no_grad():
-            samples = simple_sample(model, DDIMScheduler.from_config(noise_scheduler.config), n_samples=500, num_steps=20)
+            samples = simple_sample(model, DDIMScheduler.from_config(noise_scheduler.config), n_samples=500, num_steps=config["num_ddim_inference_steps"])
             fid = fid_scorer.compute_fid(samples)
             print(f"Epoch {epoch} | FID: {fid:.4f}")
             
@@ -647,36 +664,89 @@ if config["run_rl"]:
     
     rl_optimizer = torch.optim.AdamW(model.parameters(), lr=config["rl_lr"])
     
-    rl_metrics = {'reward': [], 'loss': [], 'fid': []}
+    # Learning rate scheduler for RL with warmup (matching toy.py)
+    # warmup_epochs = int(0.1 * config["rl_num_epochs"])  # 10% warmup
+    warmup_epochs = 100
+    
+    # Warmup scheduler: linearly increase LR from 0 to target LR
+    warmup_scheduler = torch.optim.lr_scheduler.LinearLR(
+        rl_optimizer,
+        start_factor=0.01,  # Start from 1% of lr
+        end_factor=1.0,     # End at 100% of lr
+        total_iters=warmup_epochs
+    )
+    
+    # After warmup, keep LR nearly constant with very gentle decay
+    # Cosine annealing with eta_min=0.95 means LR only drops to 95% of target
+    cosine_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        rl_optimizer,
+        T_max=config["rl_num_epochs"] - warmup_epochs,
+        eta_min=config["rl_lr"] * 0.95  # Only decrease to 95% of target LR
+    )
+    
+    # Chain warmup and gentle cosine annealing
+    rl_lr_scheduler = torch.optim.lr_scheduler.SequentialLR(
+        rl_optimizer,
+        schedulers=[warmup_scheduler, cosine_scheduler],
+        milestones=[warmup_epochs]
+    )
+    
+    rl_metrics = {'reward': [], 'loss': [], 'fid': [], 'lr': []}
+
+
     
     data_iter = iter(trainloader)
+    
+    # Gradient accumulation settings
+    accumulation_steps = 4
+    physical_batch_size = config["rl_batch_size"]  # 4
+    effective_batch_size = physical_batch_size * accumulation_steps  # 16
 
     for epoch in range(config["rl_num_epochs"]):
-        model.eval() # Gradients required for params, but we can set eval mode for layers
+        model.train()
         
-        # 1. Sample with log probs
-        samples, sum_log_probs = ddim_sample_with_log_probs(
-            model, rl_scheduler, 
-            n_samples=config["rl_batch_size"], 
-            num_steps=config["rl_num_inference_steps"]
-        )
+        # Zero gradients once per epoch
+        rl_optimizer.zero_grad()
         
-        # 2. Compute Rewards
-        rewards = compute_reward(samples)
+        # Accumulate gradients over multiple small batches
+        all_rewards = []
+        all_samples = []
+        total_reinforce_loss = 0.0
         
-        # 3. Advantages
-        reward_mean = rewards.mean()
-        reward_std = rewards.std() + 1e-8
-        advantages = (rewards - reward_mean) / reward_std
-        advantages = torch.clamp(advantages, -config["rl_advantage_max"], config["rl_advantage_max"])
+        for acc_step in range(accumulation_steps):
+            # 1. Sample with log probs (small batch)
+            samples, sum_log_probs = ddim_sample_with_log_probs(
+                model, rl_scheduler, 
+                n_samples=physical_batch_size, 
+                num_steps=config["rl_num_inference_steps"]
+            )
+            
+            # 2. Compute Rewards
+            rewards = compute_reward(samples)
+            all_rewards.append(rewards)
+            all_samples.append(samples)
+            
+            # 3. Advantages (computed per micro-batch)
+            reward_mean = rewards.mean()
+            reward_std = rewards.std() + 1e-8
+            advantages = (rewards - reward_mean) / reward_std
+            advantages = torch.clamp(advantages, -config["rl_advantage_max"], config["rl_advantage_max"])
+            
+            # 4. REINFORCE Loss (scaled by accumulation steps)
+            reinforce_loss = -torch.mean(sum_log_probs * advantages) / accumulation_steps
+            total_reinforce_loss += reinforce_loss.item() * accumulation_steps
+            
+            # 5. Backward (accumulates gradients)
+            reinforce_loss.backward()
+            
+            # Clear to free memory
+            del sum_log_probs, advantages
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
         
-        # 4. REINFORCE Loss
-        reinforce_loss = -torch.mean(sum_log_probs * advantages)
-        
-        # 5. DDPM Regularization (Optional, prevents catastrophic forgetting)
-        ddpm_loss = 0.0
+        # 6. DDPM Regularization (once per epoch)
+        ddpm_loss_val = 0.0
         if config["rl_ddpm_reg_weight"] > 0:
-            # Grab a batch of real data
             try:
                 real_batch, _ = next(data_iter)
             except:
@@ -691,56 +761,88 @@ if config["run_rl"]:
             noisy_x = noise_scheduler.add_noise(real_batch, noise, timesteps)
             pred_noise = model(noisy_x, timesteps)
             ddpm_loss = F.mse_loss(pred_noise, noise)
+            ddpm_loss_val = ddpm_loss.item()
+            
+            # Backward for regularization
+            (config["rl_ddpm_reg_weight"] * ddpm_loss).backward()
         
-        total_loss = reinforce_loss + config["rl_ddpm_reg_weight"] * ddpm_loss
-        
-        # Update
-        rl_optimizer.zero_grad()
-        total_loss.backward()
+        # 7. Single optimizer step after all accumulation
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
         rl_optimizer.step()
+        rl_lr_scheduler.step()  # Update learning rate
         
-        # Log
+        # 8. Logging
+        all_rewards = torch.cat(all_rewards)
+        all_samples = torch.cat(all_samples, dim=0)
+        reward_mean = all_rewards.mean()
+        total_loss = total_reinforce_loss + config["rl_ddpm_reg_weight"] * ddpm_loss_val
+        current_lr = rl_lr_scheduler.get_last_lr()[0]
+        
         rl_metrics['reward'].append(reward_mean.item())
-        rl_metrics['loss'].append(total_loss.item())
+        rl_metrics['loss'].append(total_loss)
+        rl_metrics['lr'].append(current_lr)
+
         
         # Compute FID periodically
         fid = 0.0
-        if epoch % 5 == 0:
+        if epoch % 100 == 0:
              with torch.no_grad():
-                # We can use the samples we just generated if batch size is large enough, 
-                # but RL batch size is small (32). Let's generate a dedicated batch for FID.
-                fid_samples = simple_sample(model, rl_scheduler, n_samples=500, num_steps=20)
+                fid_samples = simple_sample(model, rl_scheduler, n_samples=500, num_steps=config["num_ddim_inference_steps"])
                 fid = fid_scorer.compute_fid(fid_samples)
         
-        rl_metrics['fid'].append(fid) # Note: this might be 0.0 for non-eval epochs, handling in plot
+        rl_metrics['fid'].append(fid)
         
-        print(f"RL Epoch {epoch:03d} | Reward: {reward_mean.item():.4f} | "
-              f"Loss: {total_loss.item():.4f} | FID: {fid:.4f}")
+        print(f"RL Epoch {epoch:05d} | Reward: {reward_mean.item():.4f} | "
+              f"Loss: {total_loss:.4f} | FID: {fid:.4f} | LR: {current_lr:.2e}")
+
         
         if (epoch + 1) % config["save_every"] == 0:
             # Save checkpoint
-            torch.save(model.state_dict(), rl_checkpoint_path / f"rl_model_epoch_{epoch}.pt")
+            torch.save(model.state_dict(), rl_checkpoint_path / f"rl_model_epoch_{epoch+1}.pt")
             
             # Save visualization
-            save_image_grid(samples[:16], rl_checkpoint_path / f"rl_epoch_{epoch}_samples.png", 
-                           title=f"RL Epoch {epoch} (R={reward_mean.item():.2f}, FID={fid:.2f})")
+            save_image_grid(all_samples[:16], rl_checkpoint_path / f"rl_epoch_{epoch+1}_samples.png", 
+                           title=f"RL Epoch {epoch+1} (R={reward_mean.item():.2f}, FID={fid:.2f})")
+
             
-            # Plot RL Curves
-            plt.figure(figsize=(15, 5))
-            plt.subplot(1, 3, 1)
+            # Plot RL Curves (overwrite same file)
+            plt.figure(figsize=(16, 10))
+            
+            plt.subplot(2, 2, 1)
             plt.plot(rl_metrics['reward'])
             plt.title('RL Reward')
-            plt.subplot(1, 3, 2)
+            plt.xlabel('Epoch')
+            plt.ylabel('Reward')
+            plt.grid(True, alpha=0.3)
+            
+            plt.subplot(2, 2, 2)
             plt.plot(rl_metrics['loss'])
             plt.title('RL Loss')
-            plt.subplot(1, 3, 3)
+            plt.xlabel('Epoch')
+            plt.ylabel('Loss')
+            plt.grid(True, alpha=0.3)
+            
+            plt.subplot(2, 2, 3)
             # Filter non-zero FIDs
-            fids = [f for f in rl_metrics['fid'] if f > 0]
-            if fids:
-                plt.plot(range(0, len(fids)*5, 5), fids)
-            plt.title('RL FID (every 5 epochs)')
-            plt.savefig(rl_checkpoint_path / 'rl_training_curves.png')
+            fid_epochs = [i for i, f in enumerate(rl_metrics['fid']) if f > 0]
+            fid_values = [rl_metrics['fid'][i] for i in fid_epochs]
+            if fid_values:
+                plt.plot(fid_epochs, fid_values, marker='o')
+            plt.title('RL FID (every 100 epochs)')
+            plt.xlabel('Epoch')
+            plt.ylabel('FID')
+            plt.grid(True, alpha=0.3)
+            
+            plt.subplot(2, 2, 4)
+            plt.plot(rl_metrics['lr'])
+            plt.title('Learning Rate')
+            plt.xlabel('Epoch')
+            plt.ylabel('LR')
+            plt.yscale('log')
+            plt.grid(True, alpha=0.3)
+            
+            plt.tight_layout()
+            plt.savefig(rl_checkpoint_path / 'rl_training_curves.png', dpi=100)
             plt.close()
             
     print("RL Fine-tuning Complete.")
